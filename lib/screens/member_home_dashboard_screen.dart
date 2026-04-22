@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../data/mock_visits.dart';
+import '../models/member_dashboard.dart';
 import '../models/user.dart';
+import '../services/member_dashboard_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
@@ -9,7 +10,7 @@ import '../widgets/recent_visit_card.dart';
 import 'auth_screen.dart';
 import 'visit_history_screen.dart';
 
-class MemberHomeDashboardScreen extends StatelessWidget {
+class MemberHomeDashboardScreen extends StatefulWidget {
   final User user;
   final ValueChanged<int> onNavigate;
 
@@ -19,14 +20,75 @@ class MemberHomeDashboardScreen extends StatelessWidget {
     required this.onNavigate,
   });
 
+  @override
+  State<MemberHomeDashboardScreen> createState() =>
+      _MemberHomeDashboardScreenState();
+}
+
+class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
+  final _dashboardService = const MemberDashboardService();
+  final _sessionStorage = const SessionStorage();
+
+  MemberDashboard? _dashboard;
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboard();
+  }
+
+  @override
+  void didUpdateWidget(covariant MemberHomeDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.user.memberCode != widget.user.memberCode ||
+        oldWidget.user.name != widget.user.name ||
+        oldWidget.user.status != widget.user.status) {
+      _loadDashboard();
+    }
+  }
+
   String get _displayName {
-    final trimmed = user.name.trim();
-    return trimmed.isEmpty ? 'Member Gymmaster' : trimmed;
+    final fromDashboard = _dashboard?.name.trim() ?? '';
+    if (fromDashboard.isNotEmpty) {
+      return fromDashboard;
+    }
+
+    final fromUser = widget.user.name.trim();
+    return fromUser.isEmpty ? 'Member Gymmaster' : fromUser;
   }
 
   String get _memberCode {
-    final trimmed = user.memberCode.trim();
-    return trimmed.isEmpty ? '-' : trimmed;
+    final fromDashboard = _dashboard?.memberCode.trim() ?? '';
+    if (fromDashboard.isNotEmpty) {
+      return fromDashboard.toUpperCase();
+    }
+
+    final fromUser = widget.user.memberCode.trim();
+    return fromUser.isEmpty ? '-' : fromUser.toUpperCase();
+  }
+
+  String get _status {
+    final fromDashboard = _dashboard?.status.trim() ?? '';
+    if (fromDashboard.isNotEmpty) {
+      return fromDashboard;
+    }
+
+    return widget.user.status.trim();
+  }
+
+  String get _registeredAt {
+    final fromDashboard = _dashboard?.registeredAt.trim() ?? '';
+    if (fromDashboard.isNotEmpty) {
+      return fromDashboard;
+    }
+
+    return widget.user.createdAt.trim();
+  }
+
+  String get _registeredPhone {
+    return widget.user.phone.trim();
   }
 
   String get _initials {
@@ -47,50 +109,114 @@ class MemberHomeDashboardScreen extends StatelessWidget {
         .toUpperCase();
   }
 
+  Future<void> _loadDashboard({bool showLoader = true}) async {
+    if (showLoader && mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
+    try {
+      final session = await _sessionStorage.loadSession();
+      if (session == null || session.token.isEmpty) {
+        throw const MemberDashboardException(
+          'Token tidak tersedia. Silakan login ulang.',
+        );
+      }
+
+      final dashboard = await _dashboardService.fetchDashboard(
+        token: session.token,
+        tokenType: session.tokenType,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _dashboard = dashboard;
+        _isLoading = false;
+        _errorMessage = null;
+      });
+    } on MemberDashboardException catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage = error.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Gagal mengambil dashboard member. Coba lagi.';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            Stack(
-              children: [
-                SizedBox(
-                  height: 260,
-                  width: double.infinity,
-                  child: ColoredBox(color: theme.scaffoldBackgroundColor),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                  child: Column(
-                    children: [
-                      _buildTopBar(context),
-                      const SizedBox(height: 20),
-                      _buildGreetingCard(context),
-                      const SizedBox(height: 20),
-                      _buildMembershipCard(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
-              child: Column(
+        child: RefreshIndicator(
+          onRefresh: () => _loadDashboard(showLoader: false),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            children: [
+              Stack(
                 children: [
-                  _buildQuickActions(context),
-                  const SizedBox(height: 24),
-                  _buildPromoCard(context),
-                  const SizedBox(height: 28),
-                  _buildRecentVisitCard(context),
+                  SizedBox(
+                    height: 260,
+                    width: double.infinity,
+                    child: ColoredBox(color: theme.scaffoldBackgroundColor),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: Column(
+                      children: [
+                        _buildTopBar(context),
+                        const SizedBox(height: 20),
+                        _buildGreetingCard(context),
+                        const SizedBox(height: 20),
+                        _buildMembershipCard(),
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+                child: Column(
+                  children: [
+                    if (_isLoading) ...[
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    ] else if (_errorMessage != null) ...[
+                      _buildErrorCard(context),
+                      const SizedBox(height: 24),
+                    ],
+                    _buildQuickActions(context),
+                    const SizedBox(height: 24),
+                    _buildPromoCard(context),
+                    const SizedBox(height: 28),
+                    _buildRecentVisitCard(context),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -106,7 +232,7 @@ class MemberHomeDashboardScreen extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width:82,
+          width: 82,
           height: 82,
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
@@ -201,9 +327,9 @@ class MemberHomeDashboardScreen extends StatelessWidget {
   }
 
   Widget _buildMembershipCard() {
-    final status = user.status.trim();
+    final status = _status;
     final isActive = status.toUpperCase() == 'ACTIVE';
-    final statusLabel = status.isEmpty ? 'Nonaktif' : status;
+    final statusLabel = status.isEmpty ? 'NONAKTIF' : status.toUpperCase();
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
       decoration: BoxDecoration(
@@ -268,9 +394,9 @@ class MemberHomeDashboardScreen extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      user.phone.trim().isNotEmpty
-                          ? 'Nomor terdaftar ${user.phone}'
-                          : 'Terdaftar sejak ${user.createdAt.trim().isEmpty ? '-' : user.createdAt}',
+                      _registeredPhone.isNotEmpty
+                          ? 'Nomor terdaftar $_registeredPhone'
+                          : 'Terdaftar sejak ${_formatDateLabel(_registeredAt)}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 13,
@@ -282,6 +408,48 @@ class MemberHomeDashboardScreen extends StatelessWidget {
                 ],
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1B1B1B) : const Color(0xFFFFEEF2),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFFFB8C7),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Dashboard belum bisa dimuat',
+            style: TextStyle(
+              color: AppTheme.primary,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage ?? 'Terjadi kendala saat mengambil data dashboard.',
+            style: TextStyle(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton(
+            onPressed: () => _loadDashboard(),
+            child: const Text('Coba Lagi'),
           ),
         ],
       ),
@@ -321,7 +489,7 @@ class MemberHomeDashboardScreen extends StatelessWidget {
             iconColor: const Color(0xFF7B1FFF),
             backgroundColor: isDark ? darkTile : const Color(0xFFF3EAFF),
             label: 'Riwayat',
-            onTap: () => onNavigate(1),
+            onTap: () => widget.onNavigate(1),
           ),
         ),
         const SizedBox(width: 12),
@@ -348,49 +516,60 @@ class MemberHomeDashboardScreen extends StatelessWidget {
     final borderColor =
         isDark ? const Color(0xFF2A2A2A) : const Color(0xFFFFB8C7);
 
-    return InkWell(
-      onTap: () => onNavigate(1),
-      borderRadius: BorderRadius.circular(26),
-      child: Ink(
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: borderColor),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Ajak Teman, Dapat Diskon!',
-                    style: TextStyle(
-                      color: AppTheme.primary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => widget.onNavigate(1),
+        borderRadius: BorderRadius.circular(26),
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 122),
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Ajak Teman, Dapat Diskon!',
+                      style: TextStyle(
+                        color: AppTheme.primary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        height: 1.2,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Dapatkan potongan 20% untuk bulan depan.',
-                    style: TextStyle(
-                      color: onSurfaceVariant,
-                      fontSize: 15,
-                      height: 1.45,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Dapatkan potongan 20% untuk bulan depan.',
+                      style: TextStyle(
+                        color: onSurfaceVariant,
+                        fontSize: 15,
+                        height: 1.45,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: AppTheme.primary.withValues(alpha: 0.9),
-              size: 34,
-            ),
-          ],
+              const SizedBox(width: 12),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppTheme.primary.withValues(alpha: 0.9),
+                  size: 34,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -402,8 +581,7 @@ class MemberHomeDashboardScreen extends StatelessWidget {
     final onSurface = scheme.onSurface;
     final onSurfaceVariant = scheme.onSurfaceVariant;
     final isDark = theme.brightness == Brightness.dark;
-
-    final visits = allMockVisits.take(5).toList();
+    final visits = _dashboard?.lastCheckins ?? const <MemberDashboardCheckin>[];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -415,7 +593,7 @@ class MemberHomeDashboardScreen extends StatelessWidget {
                 'Kunjungan Terakhir',
                 style: TextStyle(
                   color: onSurface,
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -437,7 +615,9 @@ class MemberHomeDashboardScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        if (visits.isEmpty)
+        if (_isLoading && visits.isEmpty)
+          const Center(child: CircularProgressIndicator())
+        else if (visits.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
             child: Center(
@@ -473,19 +653,91 @@ class MemberHomeDashboardScreen extends StatelessWidget {
             ),
           )
         else
-          ...visits.map(
+          ...visits.take(5).map(
             (visit) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: RecentVisitCard(
-                gym: visit.$1,
-                time: visit.$2,
-                status: visit.$3,
+                gym: visit.branchName.trim().isEmpty ? '-' : visit.branchName,
+                time: _formatDateTimeLabel(visit.checkinAt),
+                status: _visitStatusLabel(visit.status),
+                statusBadge: _visitStatusBadge(visit.status),
                 isDark: isDark,
               ),
             ),
           ),
       ],
     );
+  }
+
+  String _visitStatusLabel(String status) {
+    final normalized = status.trim().toUpperCase();
+    switch (normalized) {
+      case 'OPEN':
+        return 'Check-in berhasil';
+      case 'CLOSE':
+        return 'Sesi selesai';
+      default:
+        return normalized.isEmpty ? '-' : normalized;
+    }
+  }
+
+  String _visitStatusBadge(String status) {
+    final normalized = status.trim().toUpperCase();
+    return normalized.isEmpty ? '-' : normalized;
+  }
+
+  String _formatDateLabel(String raw) {
+    final parsed = _tryParseDate(raw);
+    if (parsed == null) {
+      return raw.trim().isEmpty ? '-' : raw.trim();
+    }
+
+    return '${parsed.day.toString().padLeft(2, '0')} '
+        '${_monthLabel(parsed.month)} ${parsed.year}';
+  }
+
+  String _formatDateTimeLabel(String raw) {
+    final parsed = _tryParseDate(raw);
+    if (parsed == null) {
+      return raw.trim().isEmpty ? '-' : raw.trim();
+    }
+
+    final hour = parsed.hour.toString().padLeft(2, '0');
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    return '${parsed.day.toString().padLeft(2, '0')} '
+        '${_monthLabel(parsed.month)} ${parsed.year} - $hour:$minute';
+  }
+
+  DateTime? _tryParseDate(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    return DateTime.tryParse(trimmed) ??
+        DateTime.tryParse(trimmed.replaceFirst(' ', 'T'));
+  }
+
+  String _monthLabel(int month) {
+    const monthLabels = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+
+    if (month < 1 || month > 12) {
+      return '-';
+    }
+    return monthLabels[month - 1];
   }
 
   void _showComingSoon(BuildContext context, String title) {
@@ -574,7 +826,7 @@ class _MembershipLabel extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: Colors.white.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(999),
             ),
             child: const Text(
@@ -602,7 +854,6 @@ class _MembershipLabel extends StatelessWidget {
     );
   }
 }
-
 
 class _HomeActionTile extends StatelessWidget {
   final IconData icon;
@@ -684,9 +935,9 @@ class _TopBarIconButton extends StatelessWidget {
             color: backgroundColor,
             borderRadius: BorderRadius.circular(14),
           ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
               Icon(icon, color: iconColor, size: 20),
               if (showDot)
                 Positioned(

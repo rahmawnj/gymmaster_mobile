@@ -19,6 +19,7 @@ class MainShellScreen extends StatefulWidget {
 class _MainShellScreenState extends State<MainShellScreen>
     with TickerProviderStateMixin {
   late User _currentUser;
+  late List<Widget> _pages;
   int _selectedIndex = 0;
   bool _isNavVisible = true;
   DateTime? _lastNavToggleAt;
@@ -29,6 +30,7 @@ class _MainShellScreenState extends State<MainShellScreen>
     super.initState();
     _currentUser = widget.currentUser;
     _pageController = PageController(initialPage: _selectedIndex);
+    _pages = _buildPages();
   }
 
   @override
@@ -38,6 +40,7 @@ class _MainShellScreenState extends State<MainShellScreen>
         oldWidget.currentUser.name != widget.currentUser.name ||
         oldWidget.currentUser.phone != widget.currentUser.phone) {
       _currentUser = widget.currentUser;
+      _pages = _buildPages();
     }
   }
 
@@ -66,12 +69,12 @@ class _MainShellScreenState extends State<MainShellScreen>
   void _handleUserUpdated(User updatedUser) {
     setState(() {
       _currentUser = updatedUser;
+      _pages = _buildPages();
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final pages = <Widget>[
+  List<Widget> _buildPages() {
+    return <Widget>[
       MemberHomeDashboardScreen(
         user: _currentUser,
         onNavigate: _handleTabChange,
@@ -83,12 +86,16 @@ class _MainShellScreenState extends State<MainShellScreen>
       ScanQrHubScreen(currentUser: _currentUser),
       ProfileSettingsScreen(
         initialUser: _currentUser,
+        isActive: _selectedIndex == 3,
         popOnUpdate: false,
         onUserUpdated: _handleUserUpdated,
         onBackRequested: () => _handleTabChange(0),
       ),
     ];
+  }
 
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -136,13 +143,15 @@ class _MainShellScreenState extends State<MainShellScreen>
         },
         child: PageView(
           controller: _pageController,
+          physics: const PageScrollPhysics(),
+          allowImplicitScrolling: true,
           onPageChanged: (index) {
             setState(() {
               _selectedIndex = index;
               _isNavVisible = true;
             });
           },
-          children: pages,
+          children: _pages,
         ),
       ),
       bottomNavigationBar: Builder(

@@ -109,37 +109,60 @@ class _AuthScreenState extends State<AuthScreen> {
 
       var activeSession = session;
       if (_isLoginMode) {
-        final member = await _authService.fetchMemberProfile(
-          userId: session.user.id,
-          token: session.token,
-          tokenType: session.tokenType,
-        );
+        try {
+          final member = await _authService.fetchMemberProfile(
+            userId: session.user.userId,
+            token: session.token,
+            tokenType: session.tokenType,
+          );
 
-        final mergedUser = session.user.copyWith(
-          memberCode: member.memberCode.isNotEmpty ? member.memberCode : session.user.memberCode,
-          name: member.name.isNotEmpty ? member.name : session.user.name,
-          email: member.email.isNotEmpty ? member.email : session.user.email,
-          phone: member.phone.isNotEmpty ? member.phone : session.user.phone,
-          provinceId: member.provinceId.isNotEmpty ? member.provinceId : session.user.provinceId,
-          cityId: member.cityId.isNotEmpty ? member.cityId : session.user.cityId,
-          districtId: member.districtId.isNotEmpty ? member.districtId : session.user.districtId,
-          subDistrictId: member.subDistrictId.isNotEmpty ? member.subDistrictId : session.user.subDistrictId,
-          postCode: member.postCode.isNotEmpty ? member.postCode : session.user.postCode,
-          address: member.address.isNotEmpty ? member.address : session.user.address,
-          createdAt: member.createdAt.isNotEmpty ? member.createdAt : session.user.createdAt,
-          status: member.status.isNotEmpty ? member.status : session.user.status,
-          isActive: member.status.isNotEmpty
-              ? member.isActive
-              : session.user.isActive,
-        );
+          final mergedUser = session.user.copyWith(
+            id: session.user.id.isNotEmpty ? session.user.id : member.id,
+            userId: member.userId.isNotEmpty ? member.userId : session.user.userId,
+            memberCode: member.memberCode.isNotEmpty
+                ? member.memberCode
+                : session.user.memberCode,
+            name: member.name.isNotEmpty ? member.name : session.user.name,
+            email: member.email.isNotEmpty ? member.email : session.user.email,
+            phone: member.phone.isNotEmpty ? member.phone : session.user.phone,
+            provinceId: member.provinceId.isNotEmpty
+                ? member.provinceId
+                : session.user.provinceId,
+            cityId: member.cityId.isNotEmpty ? member.cityId : session.user.cityId,
+            districtId: member.districtId.isNotEmpty
+                ? member.districtId
+                : session.user.districtId,
+            subDistrictId: member.subDistrictId.isNotEmpty
+                ? member.subDistrictId
+                : session.user.subDistrictId,
+            postCode: member.postCode.isNotEmpty
+                ? member.postCode
+                : session.user.postCode,
+            address: member.address.isNotEmpty
+                ? member.address
+                : session.user.address,
+            createdAt: member.createdAt.isNotEmpty
+                ? member.createdAt
+                : session.user.createdAt,
+            status: member.status.isNotEmpty ? member.status : session.user.status,
+            isActive: member.status.isNotEmpty
+                ? member.isActive
+                : session.user.isActive,
+            imageUrl: member.imageUrl.isNotEmpty
+                ? member.imageUrl
+                : session.user.imageUrl,
+          );
 
-        activeSession = AuthSession(
-          status: session.status,
-          message: session.message,
-          token: session.token,
-          tokenType: session.tokenType,
-          user: mergedUser,
-        );
+          activeSession = AuthSession(
+            status: session.status,
+            message: session.message,
+            token: session.token,
+            tokenType: session.tokenType,
+            user: mergedUser,
+          );
+        } on AuthException {
+          activeSession = session;
+        }
       }
 
       if (!mounted) return;

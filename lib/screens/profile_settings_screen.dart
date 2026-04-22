@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -13,8 +14,30 @@ import 'display_settings_screen.dart';
 import 'face_enrollment_screen.dart';
 import 'security_settings_screen.dart';
 
+Widget _buildProfileImage({
+  required String imageUrl,
+  required Widget fallback,
+  BoxFit fit = BoxFit.cover,
+}) {
+  final normalizedUrl = imageUrl.trim();
+  if (normalizedUrl.isEmpty) {
+    return fallback;
+  }
+
+  return Image.network(
+    normalizedUrl,
+    fit: fit,
+    filterQuality: FilterQuality.medium,
+    webHtmlElementStrategy: kIsWeb
+        ? WebHtmlElementStrategy.prefer
+        : WebHtmlElementStrategy.never,
+    errorBuilder: (_, __, ___) => fallback,
+  );
+}
+
 class ProfileSettingsScreen extends StatefulWidget {
   final User initialUser;
+  final bool isActive;
   final bool popOnUpdate;
   final ValueChanged<User>? onUserUpdated;
   final VoidCallback? onBackRequested;
@@ -22,6 +45,7 @@ class ProfileSettingsScreen extends StatefulWidget {
   const ProfileSettingsScreen({
     super.key,
     required this.initialUser,
+    this.isActive = false,
     this.popOnUpdate = true,
     this.onUserUpdated,
     this.onBackRequested,
@@ -33,24 +57,250 @@ class ProfileSettingsScreen extends StatefulWidget {
 
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   final _sessionStorage = const SessionStorage();
+  final _authService = const AuthService();
   late User _user;
   FaceEnrollmentResult? _faceEnrollmentResult;
+  bool _isRefreshingProfile = false;
 
   @override
   void initState() {
     super.initState();
     _user = widget.initialUser;
+    _refreshProfile();
   }
 
   @override
   void didUpdateWidget(covariant ProfileSettingsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialUser.memberCode != widget.initialUser.memberCode ||
+    if (!oldWidget.isActive && widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _refreshProfile();
+      });
+    }
+    if (oldWidget.initialUser.id != widget.initialUser.id ||
+        oldWidget.initialUser.userId != widget.initialUser.userId ||
+        oldWidget.initialUser.memberCode != widget.initialUser.memberCode ||
         oldWidget.initialUser.name != widget.initialUser.name ||
         oldWidget.initialUser.phone != widget.initialUser.phone ||
-        oldWidget.initialUser.address != widget.initialUser.address) {
-      _user = widget.initialUser;
+        oldWidget.initialUser.address != widget.initialUser.address ||
+        oldWidget.initialUser.status != widget.initialUser.status) {
+      setState(() {
+        _user = widget.initialUser;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _refreshProfile();
+      });
     }
+  }
+
+  Future<void> _refreshProfile() async {
+    if (_isRefreshingProfile) {
+      return;
+    }
+
+    setState(() {
+      _isRefreshingProfile = true;
+    });
+
+    try {
+      final session = await _sessionStorage.loadSession();
+      if (session == null || session.token.isEmpty) {
+        return;
+      }
+
+      var activeMemberId = session.user.memberId.trim().isNotEmpty
+          ? session.user.memberId.trim()
+          : _user.memberId.trim();
+      User? enrichedProfile;
+
+      final shouldResolveMemberId =
+          session.user.accountUserId.trim().isNotEmpty &&
+          session.user.accountUserId.trim() == activeMemberId;
+
+      if (shouldResolveMemberId) {
+        try {
+          enrichedProfile = await _authService.fetchMemberProfile(
+            userId: session.user.accountUserId,
+            token: session.token,
+            tokenType: session.tokenType,
+          );
+          if (enrichedProfile.id.trim().isNotEmpty) {
+            activeMemberId = enrichedProfile.id.trim();
+          }
+        } catch (_) {
+          // Keep the stored id if resolving member id fails.
+        }
+      }
+
+      if (activeMemberId.isEmpty) {
+        return;
+      }
+
+      User refreshedUser;
+      try {
+        refreshedUser = await _authService.fetchMemberMobileProfile(
+          memberId: activeMemberId,
+          token: session.token,
+          tokenType: session.tokenType,
+        );
+      } on AuthException catch (error) {
+        if (error.message.toLowerCase().contains('record not found') &&
+            session.user.accountUserId.trim().isNotEmpty) {
+          final resolvedMember = await _authService.fetchMemberProfile(
+            userId: session.user.accountUserId,
+            token: session.token,
+            tokenType: session.tokenType,
+          );
+          enrichedProfile = resolvedMember;
+
+          refreshedUser = await _authService.fetchMemberMobileProfile(
+            memberId: resolvedMember.id,
+            token: session.token,
+            tokenType: session.tokenType,
+          );
+        } else {
+          rethrow;
+        }
+      }
+
+      final shouldFetchEnrichedProfile =
+          session.user.accountUserId.trim().isNotEmpty &&
+          (refreshedUser.email.trim().isEmpty ||
+              refreshedUser.provinceId.trim().isEmpty ||
+              refreshedUser.cityId.trim().isEmpty ||
+              refreshedUser.districtId.trim().isEmpty ||
+              refreshedUser.subDistrictId.trim().isEmpty ||
+              refreshedUser.postCode.trim().isEmpty);
+
+      if (shouldFetchEnrichedProfile && enrichedProfile == null) {
+        try {
+          enrichedProfile = await _authService.fetchMemberProfile(
+            userId: session.user.accountUserId,
+            token: session.token,
+            tokenType: session.tokenType,
+          );
+        } catch (_) {
+          // Keep using mobile profile response if the web profile cannot be loaded.
+        }
+      }
+
+      final baseUser = session.user;
+      final mergedUser = _mergeProfileUser(
+        baseUser: baseUser,
+        mobileProfile: refreshedUser,
+        enrichedProfile: enrichedProfile,
+      );
+
+      await _sessionStorage.updateStoredUser(mergedUser);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _user = mergedUser;
+      });
+      widget.onUserUpdated?.call(mergedUser);
+    } catch (_) {
+      // Keep the last local profile data if refresh fails.
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshingProfile = false;
+        });
+      }
+    }
+  }
+
+  User _mergeProfileUser({
+    required User baseUser,
+    required User mobileProfile,
+    User? enrichedProfile,
+  }) {
+    return baseUser.copyWith(
+      id: mobileProfile.id.isNotEmpty
+          ? mobileProfile.id
+          : (enrichedProfile?.id.isNotEmpty == true
+              ? enrichedProfile!.id
+              : baseUser.id),
+      userId: mobileProfile.userId.isNotEmpty
+          ? mobileProfile.userId
+          : (enrichedProfile?.userId.isNotEmpty == true
+              ? enrichedProfile!.userId
+              : baseUser.userId),
+      // Profile screen should follow GET /members/profile/{memberId}.
+      name: mobileProfile.name.isNotEmpty
+          ? mobileProfile.name
+          : (enrichedProfile?.name.isNotEmpty == true
+              ? enrichedProfile!.name
+              : baseUser.name),
+      memberCode: mobileProfile.memberCode.isNotEmpty
+          ? mobileProfile.memberCode
+          : (enrichedProfile?.memberCode.isNotEmpty == true
+              ? enrichedProfile!.memberCode
+              : baseUser.memberCode),
+      email: enrichedProfile?.email.isNotEmpty == true
+          ? enrichedProfile!.email
+          : (mobileProfile.email.isNotEmpty
+              ? mobileProfile.email
+              : baseUser.email),
+      phone: mobileProfile.phone.isNotEmpty
+          ? mobileProfile.phone
+          : (enrichedProfile?.phone.isNotEmpty == true
+              ? enrichedProfile!.phone
+              : baseUser.phone),
+      address: mobileProfile.address.isNotEmpty
+          ? mobileProfile.address
+          : (enrichedProfile?.address.isNotEmpty == true
+              ? enrichedProfile!.address
+              : baseUser.address),
+      provinceId: enrichedProfile?.provinceId.isNotEmpty == true
+          ? enrichedProfile!.provinceId
+          : (mobileProfile.provinceId.isNotEmpty
+              ? mobileProfile.provinceId
+              : baseUser.provinceId),
+      cityId: enrichedProfile?.cityId.isNotEmpty == true
+          ? enrichedProfile!.cityId
+          : (mobileProfile.cityId.isNotEmpty
+              ? mobileProfile.cityId
+              : baseUser.cityId),
+      districtId: enrichedProfile?.districtId.isNotEmpty == true
+          ? enrichedProfile!.districtId
+          : (mobileProfile.districtId.isNotEmpty
+              ? mobileProfile.districtId
+              : baseUser.districtId),
+      subDistrictId: enrichedProfile?.subDistrictId.isNotEmpty == true
+          ? enrichedProfile!.subDistrictId
+          : (mobileProfile.subDistrictId.isNotEmpty
+              ? mobileProfile.subDistrictId
+              : baseUser.subDistrictId),
+      postCode: enrichedProfile?.postCode.isNotEmpty == true
+          ? enrichedProfile!.postCode
+          : (mobileProfile.postCode.isNotEmpty
+              ? mobileProfile.postCode
+              : baseUser.postCode),
+      status: mobileProfile.status.isNotEmpty
+          ? mobileProfile.status
+          : (enrichedProfile?.status.isNotEmpty == true
+              ? enrichedProfile!.status
+              : baseUser.status),
+      isActive: mobileProfile.status.isNotEmpty
+          ? mobileProfile.isActive
+          : (enrichedProfile?.status.isNotEmpty == true
+              ? enrichedProfile!.isActive
+              : baseUser.isActive),
+      imageUrl: mobileProfile.imageUrl.isNotEmpty
+          ? mobileProfile.imageUrl
+          : (enrichedProfile?.imageUrl.isNotEmpty == true
+              ? enrichedProfile!.imageUrl
+              : baseUser.imageUrl),
+      createdAt: mobileProfile.createdAt.isNotEmpty
+          ? mobileProfile.createdAt
+          : (enrichedProfile?.createdAt.isNotEmpty == true
+              ? enrichedProfile!.createdAt
+              : baseUser.createdAt),
+    );
   }
 
   Future<void> _openEditProfileSheet() async {
@@ -161,7 +411,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _refreshProfile,
+          child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
           children: [
             _buildHeroCard(),
@@ -176,6 +428,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -239,9 +492,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       color: Colors.white,
                     ),
                     child: ClipOval(
-                      child: Image.asset(
-                        'assets/images/logo/logo-icon-black-red.png',
-                        fit: BoxFit.cover,
+                      child: _buildProfileImage(
+                        imageUrl: _user.imageUrl,
+                        fallback: Image.asset(
+                          'assets/images/logo/logo-icon-black-red.png',
+                          fit: BoxFit.cover,
+                        ),
                       ),
                     ),
                   ),
@@ -462,11 +718,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _addressController;
-  late final TextEditingController _provinceIdController;
-  late final TextEditingController _cityIdController;
-  late final TextEditingController _districtIdController;
-  late final TextEditingController _subDistrictIdController;
-  late final TextEditingController _postCodeController;
 
   bool _isSaving = false;
   Uint8List? _selectedProfileBytes;
@@ -478,17 +729,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _nameController = TextEditingController(text: widget.initialUser.name);
     _phoneController = TextEditingController(text: widget.initialUser.phone);
     _addressController = TextEditingController(text: widget.initialUser.address);
-    _provinceIdController = TextEditingController(
-      text: widget.initialUser.provinceId,
-    );
-    _cityIdController = TextEditingController(text: widget.initialUser.cityId);
-    _districtIdController = TextEditingController(
-      text: widget.initialUser.districtId,
-    );
-    _subDistrictIdController = TextEditingController(
-      text: widget.initialUser.subDistrictId,
-    );
-    _postCodeController = TextEditingController(text: widget.initialUser.postCode);
   }
 
   @override
@@ -496,11 +736,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _nameController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
-    _provinceIdController.dispose();
-    _cityIdController.dispose();
-    _districtIdController.dispose();
-    _subDistrictIdController.dispose();
-    _postCodeController.dispose();
     super.dispose();
   }
 
@@ -514,16 +749,19 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     });
 
     try {
+      final session = await _sessionStorage.loadSession();
+      if (session == null || session.token.isEmpty) {
+        throw const AuthException('Sesi login tidak ditemukan. Silakan login ulang.');
+      }
+
       final updatedUser = await _authService.updateMemberProfile(
-        memberCode: widget.initialUser.memberCode,
         name: _nameController.text.trim(),
         phone: _phoneController.text.trim(),
         address: _addressController.text.trim(),
-        provinceId: _provinceIdController.text.trim(),
-        cityId: _cityIdController.text.trim(),
-        districtId: _districtIdController.text.trim(),
-        subDistrictId: _subDistrictIdController.text.trim(),
-        postCode: _postCodeController.text.trim(),
+        token: session.token,
+        tokenType: session.tokenType,
+        imageBytes: _selectedProfileBytes,
+        imageFileName: _selectedProfileName,
       );
 
       await _sessionStorage.updateStoredUser(updatedUser);
@@ -564,7 +802,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     try {
       final file = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 90,
+        imageQuality: kIsWeb ? null : 90,
       );
       if (!mounted || file == null) {
         return;
@@ -579,13 +817,17 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         _selectedProfileBytes = bytes;
         _selectedProfileName = file.name;
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint('===== PROFILE PICK IMAGE ERROR START =====');
+      debugPrint('Error: $error');
+      debugPrint('$stackTrace');
+      debugPrint('===== PROFILE PICK IMAGE ERROR END =====');
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Gagal membuka galeri. Coba lagi.'),
+          content: Text('Gagal mengambil file. Coba lagi.'),
         ),
       );
     }
@@ -667,57 +909,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                     label: 'Alamat',
                     icon: Icons.home_outlined,
                     maxLines: 3,
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildField(
-                          controller: _provinceIdController,
-                          label: 'Province ID',
-                          icon: Icons.map_outlined,
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildField(
-                          controller: _cityIdController,
-                          label: 'City ID',
-                          icon: Icons.location_city_outlined,
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildField(
-                          controller: _districtIdController,
-                          label: 'District ID',
-                          icon: Icons.pin_drop_outlined,
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildField(
-                          controller: _subDistrictIdController,
-                          label: 'Sub District ID',
-                          icon: Icons.place_outlined,
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  _buildField(
-                    controller: _postCodeController,
-                    label: 'Post code',
-                    icon: Icons.markunread_mailbox_outlined,
-                    keyboardType: TextInputType.number,
                   ),
                   const SizedBox(height: 20),
                   SizedBox(
@@ -808,6 +999,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             .take(2)
             .map((part) => part.substring(0, 1).toUpperCase())
             .join();
+    final profileImageUrl = widget.initialUser.imageUrl.trim();
 
     return Container(
       width: double.infinity,
@@ -837,16 +1029,30 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                       _selectedProfileBytes!,
                       fit: BoxFit.cover,
                     )
-                  : Center(
-                      child: Text(
-                        initials.isEmpty ? 'GM' : initials,
-                        style: TextStyle(
-                          color: AppTheme.primary,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w900,
+                  : profileImageUrl.isNotEmpty
+                      ? _buildProfileImage(
+                          imageUrl: profileImageUrl,
+                          fallback: Center(
+                            child: Text(
+                              initials.isEmpty ? 'GM' : initials,
+                              style: TextStyle(
+                                color: AppTheme.primary,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        )
+                      : Center(
+                          child: Text(
+                            initials.isEmpty ? 'GM' : initials,
+                            style: TextStyle(
+                              color: AppTheme.primary,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
             ),
           ),
           const SizedBox(width: 16),

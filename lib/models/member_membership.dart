@@ -1,4 +1,5 @@
 class MemberMembership {
+  final String id;
   final String branchName;
   final String membershipName;
   final String startDate;
@@ -6,6 +7,7 @@ class MemberMembership {
   final String status;
 
   const MemberMembership({
+    required this.id,
     required this.branchName,
     required this.membershipName,
     required this.startDate,
@@ -15,6 +17,7 @@ class MemberMembership {
 
   factory MemberMembership.fromJson(Map<String, dynamic> json) {
     return MemberMembership(
+      id: (json['id'] ?? '').toString(),
       branchName: (json['branch_name'] ?? '').toString(),
       membershipName: (json['membership_name'] ?? '').toString(),
       startDate: (json['start_date'] ?? '').toString(),

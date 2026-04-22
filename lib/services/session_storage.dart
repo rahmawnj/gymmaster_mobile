@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/auth_session.dart';
 import '../models/user.dart';
+import 'member_dashboard_service.dart';
 
 class SessionStorage {
   static const String _sessionKey = 'auth_session';
@@ -46,6 +47,7 @@ class SessionStorage {
   Future<void> clearSession() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_sessionKey);
+    MemberDashboardService.clearCachedDashboard();
   }
 
   Future<void> updateStoredUser(User user) async {

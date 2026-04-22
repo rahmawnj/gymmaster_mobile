@@ -5,6 +5,7 @@ class RecentVisitCard extends StatelessWidget {
   final String gym;
   final String time;
   final String status;
+  final String statusBadge;
   final bool isDark;
 
   const RecentVisitCard({
@@ -12,6 +13,7 @@ class RecentVisitCard extends StatelessWidget {
     required this.gym,
     required this.time,
     required this.status,
+    required this.statusBadge,
     required this.isDark,
   });
 
@@ -102,7 +104,7 @@ class RecentVisitCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(
-              'Detail',
+              statusBadge,
               style: TextStyle(
                 color: isDark ? Colors.white : AppTheme.ink,
                 fontWeight: FontWeight.w800,

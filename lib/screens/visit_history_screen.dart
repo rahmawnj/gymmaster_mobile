@@ -26,6 +26,7 @@ class VisitHistoryScreen extends StatelessWidget {
             gym: visit.$1,
             time: visit.$2,
             status: visit.$3,
+            statusBadge: visit.$3.trim().toUpperCase(),
             isDark: isDark,
           );
         },
