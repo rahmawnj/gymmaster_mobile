@@ -9,11 +9,13 @@ class FaceFrameGeometry {
   final int faceCount;
   final Face? primaryFace;
   final bool isSingleFace;
+  final bool isInsideGuide;
   final bool isCentered;
   final bool isLargeEnough;
   final bool isTooLarge;
   final bool hasAcceptableRoll;
   final double yaw;
+  final double pitch;
   final double roll;
   final double faceWidthRatio;
   final double faceHeightRatio;
@@ -22,11 +24,13 @@ class FaceFrameGeometry {
     required this.faceCount,
     required this.primaryFace,
     required this.isSingleFace,
+    required this.isInsideGuide,
     required this.isCentered,
     required this.isLargeEnough,
     required this.isTooLarge,
     required this.hasAcceptableRoll,
     required this.yaw,
+    required this.pitch,
     required this.roll,
     required this.faceWidthRatio,
     required this.faceHeightRatio,
@@ -37,11 +41,13 @@ class FaceFrameGeometry {
       faceCount: 0,
       primaryFace: null,
       isSingleFace: false,
+      isInsideGuide: false,
       isCentered: false,
       isLargeEnough: false,
       isTooLarge: false,
       hasAcceptableRoll: true,
       yaw: 0,
+      pitch: 0,
       roll: 0,
       faceWidthRatio: 0,
       faceHeightRatio: 0,
@@ -50,10 +56,20 @@ class FaceFrameGeometry {
 
   bool get isFramedWell {
     return isSingleFace &&
+        isInsideGuide &&
         isCentered &&
         isLargeEnough &&
         !isTooLarge &&
         hasAcceptableRoll;
+  }
+
+  bool get hasNeutralYaw => yaw.abs() <= FaceQualityService.maxNeutralYawDegrees;
+
+  bool get hasNeutralPitch =>
+      pitch.abs() <= FaceQualityService.maxNeutralPitchDegrees;
+
+  bool get isReadyForFinalCapture {
+    return isFramedWell && hasNeutralYaw && hasNeutralPitch;
   }
 
   String get guidance {
@@ -62,6 +78,9 @@ class FaceFrameGeometry {
     }
     if (faceCount > 1) {
       return 'Pastikan hanya satu wajah yang terlihat.';
+    }
+    if (!isInsideGuide) {
+      return 'Pastikan wajah masuk ke area oval.';
     }
     if (isTooLarge) {
       return 'Wajah terlalu dekat. Jauhkan sedikit dari kamera.';
@@ -77,6 +96,20 @@ class FaceFrameGeometry {
     }
 
     return 'Posisi wajah sudah pas.';
+  }
+
+  String get finalCaptureGuidance {
+    if (!isFramedWell) {
+      return guidance;
+    }
+    if (!hasNeutralYaw) {
+      return 'Hadapkan wajah lurus ke depan untuk foto final.';
+    }
+    if (!hasNeutralPitch) {
+      return 'Posisikan dagu sejajar dengan frame oval.';
+    }
+
+    return 'Posisi wajah sudah siap diambil.';
   }
 }
 
@@ -97,6 +130,8 @@ class FaceCaptureAssessment {
 }
 
 class FaceQualityService {
+  static const double maxNeutralYawDegrees = 10;
+  static const double maxNeutralPitchDegrees = 12;
   static const double _minFaceWidthRatio = 0.18;
   static const double _minFaceHeightRatio = 0.22;
   static const double _maxFaceWidthRatio = 0.60;
@@ -114,7 +149,7 @@ class FaceQualityService {
     required List<Face> faces,
     required Size imageSize,
     required Size screenSize,
-    required double circleSize,
+    required Size guideSize,
   }) {
     if (faces.isEmpty) {
       return FaceFrameGeometry.empty();
@@ -140,20 +175,27 @@ class FaceQualityService {
     final centerY = imageSize.height / 2;
 
     // circle bounds in image coordinates
-    final radius = (circleSize / 2) / scale;
-    final circleRect = Rect.fromCircle(
+    final guideRect = Rect.fromCenter(
       center: Offset(centerX, centerY),
-      radius: radius,
+      width: guideSize.width / scale,
+      height: guideSize.height / scale,
     );
 
-    final faceWidthRatio = faceBounds.width / (2 * radius);
-    final faceHeightRatio = faceBounds.height / (2 * radius);
-    
-    final normalizedCenterX = (faceBounds.center.dx - circleRect.left) / circleRect.width;
-    final normalizedCenterY = (faceBounds.center.dy - circleRect.top) / circleRect.height;
-    
+    final faceWidthRatio = faceBounds.width / guideRect.width;
+    final faceHeightRatio = faceBounds.height / guideRect.height;
+
+    final normalizedCenterX =
+        (faceBounds.center.dx - guideRect.left) / guideRect.width;
+    final normalizedCenterY =
+        (faceBounds.center.dy - guideRect.top) / guideRect.height;
+    final centerDeltaX = ((normalizedCenterX - 0.5).abs() * 2);
+    final centerDeltaY = ((normalizedCenterY - 0.5).abs() * 2);
+    final isInsideGuide =
+        (centerDeltaX * centerDeltaX) + (centerDeltaY * centerDeltaY) <= 0.92;
+
     final roll = (primaryFace.headEulerAngleZ ?? 0).toDouble();
     final yaw = (primaryFace.headEulerAngleY ?? 0).toDouble();
+    final pitch = (primaryFace.headEulerAngleX ?? 0).toDouble();
 
     final isCentered =
         (normalizedCenterX - 0.5).abs() <= _centerToleranceX &&
@@ -170,11 +212,13 @@ class FaceQualityService {
       faceCount: faces.length,
       primaryFace: primaryFace,
       isSingleFace: faces.length == 1,
+      isInsideGuide: isInsideGuide,
       isCentered: isCentered,
       isLargeEnough: isLargeEnough,
       isTooLarge: isTooLarge,
       hasAcceptableRoll: hasAcceptableRoll,
       yaw: yaw,
+      pitch: pitch,
       roll: roll,
       faceWidthRatio: faceWidthRatio,
       faceHeightRatio: faceHeightRatio,

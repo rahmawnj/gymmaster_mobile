@@ -24,7 +24,9 @@ class FaceEnrollmentScreen extends StatefulWidget {
 class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static const int _captureCountdownStart = 3;
-  static const double _cameraCircleSize = 280;
+  static const double _cameraGuideWidth = 270;
+  static const double _cameraGuideHeight = 340;
+  static const int _requiredStableFrames = 4;
   final _permissionService = const CameraPermissionService();
   final _qualityService = const FaceQualityService();
   final _screenBrightness = ScreenBrightness();
@@ -56,6 +58,10 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   late final AnimationController _countdownRingController;
   int? _countdownValue;
   String _countdownMessage = 'Tahan posisi, foto akan diambil otomatis.';
+  Offset? _lastStableFaceCenter;
+  double? _lastStableFaceWidthRatio;
+  double? _lastStableFaceHeightRatio;
+  int _stableFrameCount = 0;
 
   @override
   void initState() {
@@ -191,6 +197,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       _livenessController.reset();
       _progress = _livenessController.initialProgress;
       _geometry = FaceFrameGeometry.empty();
+      _resetStabilityState();
       _result = null;
 
       await _startImageStream();
@@ -268,13 +275,14 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
         faces: faces,
         imageSize: Size(image.width.toDouble(), image.height.toDouble()),
         screenSize: screenSize,
-        circleSize: _cameraCircleSize,
+        guideSize: const Size(_cameraGuideWidth, _cameraGuideHeight),
       );
 
       final progress = _livenessController.evaluate(
         geometry: geometry,
         face: faces.isNotEmpty ? geometry.primaryFace : null,
       );
+      _updateStabilityState(geometry);
 
       if (!mounted) {
         return;
@@ -293,12 +301,99 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     }
   }
 
+  void _updateStabilityState(FaceFrameGeometry geometry) {
+    final face = geometry.primaryFace;
+    if (face == null || !geometry.isReadyForFinalCapture) {
+      _resetStabilityState();
+      return;
+    }
+
+    final faceCenter = face.boundingBox.center;
+    final widthRatio = geometry.faceWidthRatio;
+    final heightRatio = geometry.faceHeightRatio;
+
+    if (_lastStableFaceCenter == null ||
+        _lastStableFaceWidthRatio == null ||
+        _lastStableFaceHeightRatio == null) {
+      _lastStableFaceCenter = faceCenter;
+      _lastStableFaceWidthRatio = widthRatio;
+      _lastStableFaceHeightRatio = heightRatio;
+      _stableFrameCount = 1;
+      return;
+    }
+
+    final movement = (faceCenter - _lastStableFaceCenter!).distance;
+    final widthDelta = (widthRatio - _lastStableFaceWidthRatio!).abs();
+    final heightDelta = (heightRatio - _lastStableFaceHeightRatio!).abs();
+    final isStableNow =
+        movement <= 18 && widthDelta <= 0.035 && heightDelta <= 0.04;
+
+    _lastStableFaceCenter = faceCenter;
+    _lastStableFaceWidthRatio = widthRatio;
+    _lastStableFaceHeightRatio = heightRatio;
+
+    if (isStableNow) {
+      final nextStableCount = _stableFrameCount + 1;
+      _stableFrameCount = nextStableCount > _requiredStableFrames
+          ? _requiredStableFrames
+          : nextStableCount;
+    } else {
+      _stableFrameCount = 1;
+    }
+  }
+
+  void _resetStabilityState() {
+    _lastStableFaceCenter = null;
+    _lastStableFaceWidthRatio = null;
+    _lastStableFaceHeightRatio = null;
+    _stableFrameCount = 0;
+  }
+
+  bool get _isFaceStable => _stableFrameCount >= _requiredStableFrames;
+
+  Color get _guideFrameColor {
+    if (_countdownValue != null || _isCapturing) {
+      return const Color(0xFF7EF2BC);
+    }
+    if (_progress.isCompleted && _geometry.isReadyForFinalCapture && _isFaceStable) {
+      return const Color(0xFF7EF2BC);
+    }
+    if (_geometry.faceCount == 0) {
+      return Colors.white.withValues(alpha: 0.88);
+    }
+    if (!_geometry.isFramedWell) {
+      return const Color(0xFFFF8A65);
+    }
+    if (_progress.isCompleted && !_geometry.isReadyForFinalCapture) {
+      return const Color(0xFFFFC857);
+    }
+
+    return const Color(0xFF6DD3FF);
+  }
+
+  String get _liveGuidanceText {
+    if (_errorMessage != null && _cameraController != null) {
+      return _errorMessage!;
+    }
+    if (_countdownValue != null) {
+      return 'Pose sudah cocok. Tahan dulu sampai countdown selesai.';
+    }
+    if (_progress.isCompleted && !_geometry.isReadyForFinalCapture) {
+      return _geometry.finalCaptureGuidance;
+    }
+    if (_progress.isCompleted && !_isFaceStable) {
+      return 'Bagus, tahan wajah tetap stabil sebentar lagi.';
+    }
+
+    return _progress.detail;
+  }
+
   void _handleAutoCaptureState(FaceFrameGeometry geometry, LivenessProgress progress) {
     if (_isCapturing) {
       return;
     }
 
-    if (!geometry.isFramedWell) {
+    if (!geometry.isReadyForFinalCapture) {
       _cancelCountdown();
       return;
     }
@@ -307,9 +402,12 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       return;
     }
 
-    if (progress.isCompleted) {
+    if (progress.isCompleted && _isFaceStable) {
       _startCountdown();
+      return;
     }
+
+    _cancelCountdown();
   }
 
   void _startCountdown() {
@@ -462,6 +560,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
           _livenessController.reset();
           _progress = _livenessController.initialProgress;
           _geometry = FaceFrameGeometry.empty();
+          _resetStabilityState();
           _errorMessage = assessment.message;
         });
         await _startImageStream();
@@ -508,6 +607,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   Future<void> _stopCamera() async {
     final controller = _cameraController;
     _cameraController = null;
+    _resetStabilityState();
     if (controller == null) {
       return;
     }
@@ -579,6 +679,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       _geometry = FaceFrameGeometry.empty();
       _livenessController.reset();
       _progress = _livenessController.initialProgress;
+      _resetStabilityState();
     });
     _cancelCountdown();
 
@@ -655,70 +756,107 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   }
 
   Widget _buildGuideFrame() {
+    const guideSize = Size(_cameraGuideWidth, _cameraGuideHeight);
+
     return IgnorePointer(
       child: Stack(
         fit: StackFit.expand,
         children: [
           CustomPaint(
-            painter: _HolePunchPainter(circleSize: _cameraCircleSize),
+            painter: _HolePunchPainter(guideSize: guideSize),
           ),
           Center(
             child: SizedBox(
-              width: _cameraCircleSize + 18,
-              height: _cameraCircleSize + 18,
+              width: guideSize.width + 28,
+              height: guideSize.height + 42,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  CustomPaint(
-                    size: const Size(
-                      _cameraCircleSize + 12,
-                      _cameraCircleSize + 12,
-                    ),
-                    painter: _ProgressRingPainter(
-                      progress: _progress.completedSteps / 3,
+                  SizedBox(
+                    width: guideSize.width + 24,
+                    height: guideSize.height + 24,
+                    child: CustomPaint(
+                      painter: _GuideProgressPainter(
+                        progress: _progress.completedSteps / 3,
+                        color: _guideFrameColor,
+                      ),
                     ),
                   ),
                   if (_countdownValue != null)
-                    AnimatedBuilder(
-                      animation: _countdownRingController,
-                      builder: (context, child) {
-                        final progress = 1 - _countdownRingController.value;
-                        return CustomPaint(
-                          size: const Size(
-                            _cameraCircleSize + 12,
-                            _cameraCircleSize + 12,
-                          ),
-                          painter: _CountdownRingPainter(progress: progress),
-                        );
-                      },
+                    SizedBox(
+                      width: guideSize.width + 24,
+                      height: guideSize.height + 24,
+                      child: AnimatedBuilder(
+                        animation: _countdownRingController,
+                        builder: (context, child) {
+                          final progress = 1 - _countdownRingController.value;
+                          return CustomPaint(
+                            painter: _GuideProgressPainter(
+                              progress: progress,
+                              color: AppTheme.primary,
+                              strokeWidth: 6,
+                            ),
+                          );
+                        },
+                      ),
                     ),
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: _geometry.isFramedWell
-                        ? const Color(0xFF7EF2BC)
-                        : Colors.white.withValues(alpha: 0.88),
-                    width: 3,
+                  SizedBox(
+                    width: guideSize.width + 8,
+                    height: guideSize.height + 8,
+                    child: CustomPaint(
+                      painter: _GuideOutlinePainter(
+                        color: _guideFrameColor,
+                        isLocked:
+                            _countdownValue != null ||
+                            (_progress.isCompleted &&
+                                _geometry.isReadyForFinalCapture &&
+                                _isFaceStable),
+                      ),
+                    ),
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.24),
-                      blurRadius: 30,
-                      spreadRadius: 6,
-                    ),
-                  ],
-                ),
-                width: _cameraCircleSize + 6,
-                height: _cameraCircleSize + 6,
+                  Positioned(
+                    top: 0,
+                    child: _buildGuideLabel(),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideLabel() {
+    final ready =
+        _countdownValue != null ||
+        (_progress.isCompleted &&
+            _geometry.isReadyForFinalCapture &&
+            _isFaceStable);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: ready
+            ? const Color(0xFF173828).withValues(alpha: 0.92)
+            : Colors.black.withValues(alpha: 0.48),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: ready
+              ? const Color(0xFF7EF2BC).withValues(alpha: 0.65)
+              : Colors.white.withValues(alpha: 0.10),
         ),
       ),
-    ],
-  ),
-);
+      child: Text(
+        ready ? 'Wajah terkunci, siap difoto' : 'Posisikan wajah di dalam oval',
+        style: TextStyle(
+          color: ready ? const Color(0xFF7EF2BC) : Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 12.5,
+        ),
+      ),
+    );
   }
 
   Widget _buildCountdownOverlay() {
@@ -827,10 +965,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            _errorMessage ??
-                (_countdownValue != null
-                    ? 'Pose sudah cocok. Tahan dulu sampai countdown selesai.'
-                    : _progress.detail),
+            _liveGuidanceText,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.78),
               height: 1.45,
@@ -842,17 +977,18 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
             runSpacing: 8,
             children: [
               _buildStatusChip('Deteksi', _geometry.faceCount == 1),
-              _buildStatusChip('Pose', _geometry.isFramedWell),
+              _buildStatusChip('Frame', _geometry.isFramedWell),
+              _buildStatusChip('Pose', _geometry.isReadyForFinalCapture),
+              _buildStatusChip('Stabil', _isFaceStable),
               _buildStatusChip(
                 'Timer',
                 _countdownValue != null || _isCapturing,
               ),
-              _buildStatusChip('Analisis', _result != null),
             ],
           ),
           const SizedBox(height: 16),
           Text(
-            'Wajah: ${(100 * _geometry.faceWidthRatio).round()}% lebar frame • Roll ${_geometry.roll.toStringAsFixed(1)}° • Timer: ${_countdownValue ?? '-'}',
+            'Wajah: ${(100 * _geometry.faceWidthRatio).round()}% lebar oval • Yaw ${_geometry.yaw.toStringAsFixed(1)}° • Pitch ${_geometry.pitch.toStringAsFixed(1)}° • Stabil ${math.min(_stableFrameCount, _requiredStableFrames)}/$_requiredStableFrames',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.68),
               fontSize: 12,
@@ -1152,50 +1288,60 @@ class _CountdownRingPainter extends CustomPainter {
 }
 
 class _HolePunchPainter extends CustomPainter {
-  final double circleSize;
+  final Size guideSize;
 
-  const _HolePunchPainter({required this.circleSize});
+  const _HolePunchPainter({required this.guideSize});
 
   @override
   void paint(Canvas canvas, Size size) {
     final path = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addOval(Rect.fromCircle(
+      ..addOval(Rect.fromCenter(
         center: Offset(size.width / 2, size.height / 2),
-        radius: circleSize / 2,
+        width: guideSize.width,
+        height: guideSize.height,
       ));
     path.fillType = PathFillType.evenOdd;
     canvas.drawPath(
       path,
-      Paint()..color = Colors.black.withValues(alpha: 0.85),
+      Paint()..color = Colors.black.withValues(alpha: 0.80),
     );
   }
 
   @override
   bool shouldRepaint(covariant _HolePunchPainter oldDelegate) {
-    return oldDelegate.circleSize != circleSize;
+    return oldDelegate.guideSize != guideSize;
   }
 }
 
-class _ProgressRingPainter extends CustomPainter {
+class _GuideProgressPainter extends CustomPainter {
   final double progress;
+  final double strokeWidth;
+  final Color color;
 
-  const _ProgressRingPainter({required this.progress});
+  const _GuideProgressPainter({
+    required this.progress,
+    required this.color,
+    this.strokeWidth = 5,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.shortestSide / 2) - 3;
     final progressPaint = Paint()
-      ..color = const Color(0xFF25B26B)
+      ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
+      ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
     final sweep = 2 * math.pi * progress.clamp(0.0, 1.0);
     if (sweep > 0.0) {
       canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
+        Rect.fromLTWH(
+          strokeWidth,
+          strokeWidth,
+          size.width - (strokeWidth * 2),
+          size.height - (strokeWidth * 2),
+        ),
         -math.pi / 2,
         sweep,
         false,
@@ -1205,7 +1351,86 @@ class _ProgressRingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ProgressRingPainter oldDelegate) {
-    return oldDelegate.progress != progress;
+  bool shouldRepaint(covariant _GuideProgressPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.color != color;
+  }
+}
+
+class _GuideOutlinePainter extends CustomPainter {
+  final Color color;
+  final bool isLocked;
+
+  const _GuideOutlinePainter({required this.color, required this.isLocked});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(4, 4, size.width - 8, size.height - 8);
+    final glowPaint = Paint()
+      ..color = color.withValues(alpha: isLocked ? 0.26 : 0.14)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = isLocked ? 8 : 6
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+    final borderPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = isLocked ? 3.6 : 3;
+    final innerPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.16)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    canvas.drawOval(rect, glowPaint);
+    canvas.drawOval(rect, borderPaint);
+    canvas.drawOval(rect.deflate(10), innerPaint);
+
+    final markerPaint = Paint()
+      ..color = color.withValues(alpha: 0.84)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round;
+
+    final markerWidth = size.width * 0.14;
+    final markerHeight = size.height * 0.10;
+
+    canvas.drawArc(
+      Rect.fromLTWH(12, 18, markerWidth, markerHeight),
+      math.pi,
+      math.pi / 2,
+      false,
+      markerPaint,
+    );
+    canvas.drawArc(
+      Rect.fromLTWH(size.width - markerWidth - 12, 18, markerWidth, markerHeight),
+      -math.pi / 2,
+      math.pi / 2,
+      false,
+      markerPaint,
+    );
+    canvas.drawArc(
+      Rect.fromLTWH(12, size.height - markerHeight - 18, markerWidth, markerHeight),
+      math.pi / 2,
+      math.pi / 2,
+      false,
+      markerPaint,
+    );
+    canvas.drawArc(
+      Rect.fromLTWH(
+        size.width - markerWidth - 12,
+        size.height - markerHeight - 18,
+        markerWidth,
+        markerHeight,
+      ),
+      0,
+      math.pi / 2,
+      false,
+      markerPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GuideOutlinePainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.isLocked != isLocked;
   }
 }
