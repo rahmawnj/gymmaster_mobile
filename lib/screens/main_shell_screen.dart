@@ -96,155 +96,181 @@ class _MainShellScreenState extends State<MainShellScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      extendBody: true,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: NotificationListener<ScrollNotification>(
-        onNotification: (notification) {
-          if (_selectedIndex != 0 && _selectedIndex != 1) {
-            return false;
-          }
-          if (notification.metrics.axis != Axis.vertical) {
-            return false;
-          }
-          if (notification.metrics.pixels <=
-              notification.metrics.minScrollExtent + 2) {
-            if (!_isNavVisible) {
-              setState(() {
-                _isNavVisible = true;
-              });
-            }
-            return false;
-          }
-          if (notification is ScrollUpdateNotification) {
-            final delta = notification.scrollDelta ?? 0;
-            if (delta.abs() < 2) {
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: Stack(
+        children: [
+          NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (_selectedIndex != 0 && _selectedIndex != 1) {
+                return false;
+              }
+              if (notification.metrics.axis != Axis.vertical) {
+                return false;
+              }
+              if (notification.metrics.pixels <=
+                  notification.metrics.minScrollExtent + 2) {
+                if (!_isNavVisible) {
+                  setState(() {
+                    _isNavVisible = true;
+                  });
+                }
+                return false;
+              }
+              if (notification is ScrollUpdateNotification) {
+                final delta = notification.scrollDelta ?? 0;
+                if (delta.abs() < 2) {
+                  return false;
+                }
+                final now = DateTime.now();
+                if (_lastNavToggleAt != null &&
+                    now.difference(_lastNavToggleAt!) <
+                        const Duration(milliseconds: 160)) {
+                  return false;
+                }
+                if (delta > 0 && _isNavVisible) {
+                  setState(() {
+                    _isNavVisible = false;
+                    _lastNavToggleAt = now;
+                  });
+                } else if (delta < 0 && !_isNavVisible) {
+                  setState(() {
+                    _isNavVisible = true;
+                    _lastNavToggleAt = now;
+                  });
+                }
+              }
               return false;
-            }
-            final now = DateTime.now();
-            if (_lastNavToggleAt != null &&
-                now.difference(_lastNavToggleAt!) <
-                    const Duration(milliseconds: 160)) {
-              return false;
-            }
-            if (delta > 0 && _isNavVisible) {
-              setState(() {
-                _isNavVisible = false;
-                _lastNavToggleAt = now;
-              });
-            } else if (delta < 0 && !_isNavVisible) {
-              setState(() {
-                _isNavVisible = true;
-                _lastNavToggleAt = now;
-              });
-            }
-          }
-          return false;
-        },
-        child: PageView(
-          controller: _pageController,
-          physics: const PageScrollPhysics(),
-          allowImplicitScrolling: true,
-          onPageChanged: (index) {
-            setState(() {
-              _selectedIndex = index;
-              _isNavVisible = true;
-            });
-          },
-          children: _pages,
-        ),
+            },
+            child: PageView(
+              controller: _pageController,
+              physics: const PageScrollPhysics(),
+              allowImplicitScrolling: true,
+              onPageChanged: (index) {
+                setState(() {
+                  _selectedIndex = index;
+                  _isNavVisible = true;
+                });
+              },
+              children: _pages,
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildFloatingNavigationBar(theme),
+          ),
+        ],
       ),
-      bottomNavigationBar: Builder(
-        builder: (context) {
-          final theme = Theme.of(context);
-          final isDark = theme.brightness == Brightness.dark;
-          final scheme = theme.colorScheme;
-          final bottomInset = MediaQuery.of(context).padding.bottom;
-          final navColor = isDark
-              ? const Color(0xFF181818)
-              : const Color(0xFFFBFBFC);
-          return AnimatedSlide(
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeInOutCubic,
-            offset: _isNavVisible ? Offset.zero : const Offset(0, 1.2),
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOutCubic,
-              opacity: _isNavVisible ? 1 : 0,
-              child: IgnorePointer(
-                ignoring: !_isNavVisible,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(10, 0, 10, 10 + bottomInset),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(26),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: navColor,
-                        boxShadow: [
-                          if (isDark)
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.22),
-                              blurRadius: 20,
-                              offset: const Offset(0, -4),
-                            )
-                          else
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.025),
-                              blurRadius: 12,
-                              offset: const Offset(0, -2),
-                            ),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _NavItem(
-                                icon: Icons.home_rounded,
-                                label: 'Beranda',
-                                isActive: _selectedIndex == 0,
-                                activeColor: scheme.primary,
-                                onTap: () => _handleTabChange(0),
-                              ),
-                            ),
-                            Expanded(
-                              child: _NavItem(
-                                icon: Icons.layers_outlined,
-                                label: 'Paket',
-                                isActive: _selectedIndex == 1,
-                                activeColor: scheme.primary,
-                                onTap: () => _handleTabChange(1),
-                              ),
-                            ),
-                            Expanded(
-                              child: _NavItem(
-                                icon: Icons.qr_code_scanner_rounded,
-                                label: 'Scan QR',
-                                isActive: _selectedIndex == 2,
-                                activeColor: scheme.primary,
-                                onTap: () => _handleTabChange(2),
-                              ),
-                            ),
-                            Expanded(
-                              child: _NavItem(
-                                icon: Icons.person_outline_rounded,
-                                label: 'Profil',
-                                isActive: _selectedIndex == 3,
-                                activeColor: scheme.primary,
-                                onTap: () => _handleTabChange(3),
-                              ),
-                            ),
-                          ],
+    );
+  }
+
+  Widget _buildFloatingNavigationBar(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final scheme = theme.colorScheme;
+    final navColor = isDark ? const Color(0xFF181818) : const Color(0xFFFBFBFC);
+
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        offset: _isNavVisible ? Offset.zero : const Offset(0, 1.35),
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          opacity: _isNavVisible ? 1 : 0,
+          child: IgnorePointer(
+            ignoring: !_isNavVisible,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: [
+                  if (isDark) ...[
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.42),
+                      blurRadius: 26,
+                      spreadRadius: -4,
+                      offset: const Offset(0, 16),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 10,
+                      spreadRadius: -2,
+                      offset: const Offset(0, 4),
+                    ),
+                  ] else
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 18,
+                      spreadRadius: -3,
+                      offset: const Offset(0, 10),
+                    ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(26),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: navColor,
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : Colors.black.withValues(alpha: 0.04),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _NavItem(
+                            icon: Icons.home_outlined,
+                            label: 'Beranda',
+                            isActive: _selectedIndex == 0,
+                            activeColor: scheme.primary,
+                            onTap: () => _handleTabChange(0),
+                          ),
                         ),
-                      ),
+                        Expanded(
+                          child: _NavItem(
+                            icon: Icons.layers_outlined,
+                            label: 'Paket',
+                            isActive: _selectedIndex == 1,
+                            activeColor: scheme.primary,
+                            onTap: () => _handleTabChange(1),
+                          ),
+                        ),
+                        Expanded(
+                          child: _NavItem(
+                            icon: Icons.qr_code_scanner_rounded,
+                            label: 'Scan QR',
+                            isActive: _selectedIndex == 2,
+                            activeColor: scheme.primary,
+                            onTap: () => _handleTabChange(2),
+                          ),
+                        ),
+                        Expanded(
+                          child: _NavItem(
+                            icon: Icons.person_outline_rounded,
+                            label: 'Profil',
+                            isActive: _selectedIndex == 3,
+                            activeColor: scheme.primary,
+                            onTap: () => _handleTabChange(3),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }

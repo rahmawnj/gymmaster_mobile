@@ -73,12 +73,9 @@ class _AppLockScreenState extends State<AppLockScreen> {
     try {
       final ok = await _auth.authenticate(
         localizedReason: 'Gunakan keamanan HP untuk membuka aplikasi.',
-        options: const AuthenticationOptions(
-          biometricOnly: false,
-          stickyAuth: true,
-          useErrorDialogs: true,
-          sensitiveTransaction: true,
-        ),
+        biometricOnly: false,
+        persistAcrossBackgrounding: true,
+        sensitiveTransaction: true,
       );
       if (!mounted) return;
       if (ok) {

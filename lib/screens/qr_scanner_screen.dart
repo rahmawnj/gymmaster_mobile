@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -14,6 +15,8 @@ class QrScannerScreen extends StatefulWidget {
 
 class _QrScannerScreenState extends State<QrScannerScreen> {
   final MobileScannerController _controller = MobileScannerController(
+    autoStart: false,
+    facing: kIsWeb ? CameraFacing.front : CameraFacing.back,
     formats: const [BarcodeFormat.qrCode],
     detectionSpeed: DetectionSpeed.noDuplicates,
   );
@@ -22,6 +25,17 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
   bool _hasHandledDetection = false;
   bool _isTorchOn = false;
+  bool _isStartingCamera = true;
+  bool _isProcessingResult = false;
+  String? _cameraErrorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startScanner();
+    });
+  }
 
   @override
   void dispose() {
@@ -29,8 +43,29 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     super.dispose();
   }
 
+  Future<void> _startScanner() async {
+    try {
+      await _controller.start();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isStartingCamera = false;
+        _cameraErrorMessage = null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isStartingCamera = false;
+        _cameraErrorMessage = error.toString();
+      });
+    }
+  }
+
   Future<void> _handleDetection(BarcodeCapture capture) async {
-    if (_hasHandledDetection) {
+    if (_hasHandledDetection || _isProcessingResult) {
       return;
     }
 
@@ -48,6 +83,11 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     }
 
     _hasHandledDetection = true;
+    if (mounted) {
+      setState(() {
+        _isProcessingResult = true;
+      });
+    }
 
     try {
       await _controller.stop();
@@ -67,6 +107,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         return;
       }
 
+      setState(() {
+        _isProcessingResult = true;
+      });
+
       final rawValue = await _qrDecoderService.decodeFile(file);
       if (!mounted) {
         return;
@@ -78,6 +122,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         return;
       }
 
+      setState(() {
+        _isProcessingResult = false;
+      });
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.message)));
@@ -85,6 +133,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       if (!mounted) {
         return;
       }
+
+      setState(() {
+        _isProcessingResult = false;
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -195,15 +247,11 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                             ),
                           ],
                         ),
-                        child: Stack(
-                          children: [
-                            _buildCorner(top: 0, left: 0),
-                            _buildCorner(top: 0, right: 0),
-                            _buildCorner(bottom: 0, left: 0),
-                            _buildCorner(bottom: 0, right: 0),
-                            _ScannerBeam(size: frameSize),
-                          ],
-                        ),
+	                        child: Stack(
+	                          children: [
+	                            _ScannerBeam(size: frameSize),
+	                          ],
+	                        ),
                       ),
                     ),
                   ],
@@ -211,6 +259,64 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
               },
             ),
           ),
+          if (_isStartingCamera)
+            const Positioned.fill(
+              child: ColoredBox(
+                color: Color(0x66000000),
+                child: Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+              ),
+            ),
+          if (_cameraErrorMessage != null)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.78),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.videocam_off_rounded,
+                      color: Colors.white,
+                      size: 56,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Kamera belum berhasil dimulai.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _cameraErrorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    FilledButton(
+                      onPressed: () {
+                        setState(() {
+                          _isStartingCamera = true;
+                          _cameraErrorMessage = null;
+                        });
+                        _startScanner();
+                      },
+                      child: const Text('Coba Lagi'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
@@ -262,81 +368,66 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 18),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
+                ],
+              ),
+            ),
+          ),
+          if (_isProcessingResult)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.34),
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: 220,
+                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.42),
-                      borderRadius: BorderRadius.circular(28),
+                      color: Colors.black.withValues(alpha: 0.74),
+                      borderRadius: BorderRadius.circular(24),
                       border: Border.all(
                         color: Colors.white.withValues(alpha: 0.08),
                       ),
                     ),
                     child: const Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
+                        SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppTheme.primary,
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 16),
                         Text(
-                          'Arahkan kamera ke QR code',
+                          'Memproses QR...',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 18,
+                            fontSize: 16,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        SizedBox(height: 8),
+                        SizedBox(height: 6),
                         Text(
-                          'Begitu QR terbaca, halaman ini akan langsung kembali otomatis.',
+                          'Tunggu sebentar, hasil scan sedang disiapkan.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.white70,
-                            fontSize: 14,
-                            height: 1.5,
+                            fontSize: 13.5,
+                            height: 1.45,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
+                ),
               ),
             ),
-          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildCorner({
-    double? top,
-    double? right,
-    double? bottom,
-    double? left,
-  }) {
-    return Positioned(
-      top: top,
-      right: right,
-      bottom: bottom,
-      left: left,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border(
-            top: top != null
-                ? const BorderSide(color: AppTheme.primary, width: 4)
-                : BorderSide.none,
-            right: right != null
-                ? const BorderSide(color: AppTheme.primary, width: 4)
-                : BorderSide.none,
-            bottom: bottom != null
-                ? const BorderSide(color: AppTheme.primary, width: 4)
-                : BorderSide.none,
-            left: left != null
-                ? const BorderSide(color: AppTheme.primary, width: 4)
-                : BorderSide.none,
-          ),
-        ),
       ),
     );
   }

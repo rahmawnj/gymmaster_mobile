@@ -6,11 +6,12 @@ import '../models/member_branch.dart';
 import '../models/member_membership.dart';
 import '../models/member_membership_option.dart';
 import '../models/user.dart';
+import '../services/camera_permission_service.dart';
 import '../services/membership_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
-import 'scan_qr_hub_screen.dart';
+import 'qr_scanner_screen.dart';
 
 class MemberPackagesScreen extends StatefulWidget {
   final User currentUser;
@@ -27,6 +28,7 @@ class MemberPackagesScreen extends StatefulWidget {
 }
 
 class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
+  final _cameraPermissionService = const CameraPermissionService();
   final _membershipService = const MembershipService();
   final _sessionStorage = const SessionStorage();
   final _searchController = TextEditingController();
@@ -35,6 +37,7 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
   bool _isMembershipsLoading = true;
   bool _isBranchesLoading = true;
   bool _locationEnabled = false;
+  bool _isResolvingScannedQr = false;
   String? _membershipErrorMessage;
   String? _branchErrorMessage;
   String? _locationError;
@@ -193,17 +196,167 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     });
   }
 
-  void _openScanner() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ScanQrHubScreen(currentUser: widget.currentUser),
-      ),
+  Future<void> _openScanner() async {
+    final permissionResult = await _cameraPermissionService
+        .ensureCameraPermission();
+    if (!mounted) return;
+
+    switch (permissionResult) {
+      case CameraPermissionResult.granted:
+      case CameraPermissionResult.unsupported:
+        final rawValue = await Navigator.of(context).push<String>(
+          MaterialPageRoute(builder: (_) => const QrScannerScreen()),
+        );
+        if (!mounted || rawValue == null || rawValue.trim().isEmpty) {
+          return;
+        }
+        await _openBranchFromQr(rawValue);
+        break;
+      case CameraPermissionResult.denied:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Izin kamera dibutuhkan untuk mulai scan QR.'),
+          ),
+        );
+        break;
+      case CameraPermissionResult.permanentlyDenied:
+        await _showCameraSettingsDialog();
+        break;
+    }
+  }
+
+  Future<void> _showCameraSettingsDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Izin Kamera Diperlukan'),
+          content: const Text(
+            'Akses kamera sedang ditolak permanen. Buka pengaturan aplikasi untuk mengaktifkan izin kamera.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Nanti'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                await _cameraPermissionService.openSettings();
+              },
+              child: const Text('Buka Setting'),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  void _showBranchSelected(MemberBranch branch) {
+  Future<void> _openBranchFromQr(String rawValue) async {
+    if (mounted) {
+      setState(() {
+        _isResolvingScannedQr = true;
+      });
+    }
+
+    try {
+      final branchId = _extractBranchIdFromQr(rawValue);
+      if (branchId == null || branchId.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('QR ini tidak memiliki branch_id yang bisa dibuka.'),
+          ),
+        );
+        return;
+      }
+
+      final branches = _branches.isNotEmpty
+          ? _branches
+          : await _fetchBranchesForQr();
+      if (!mounted) return;
+
+      final matchedBranch = branches.cast<MemberBranch?>().firstWhere(
+            (branch) => branch != null && branch.id.trim() == branchId,
+            orElse: () => null,
+          );
+
+      if (matchedBranch == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Branch dengan ID $branchId tidak ditemukan.'),
+          ),
+        );
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _isResolvingScannedQr = false;
+        });
+      }
+      await _showBranchSelected(matchedBranch);
+    } on MembershipException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gagal membuka branch dari hasil scan QR.'),
+        ),
+      );
+    } finally {
+      if (mounted && _isResolvingScannedQr) {
+        setState(() {
+          _isResolvingScannedQr = false;
+        });
+      }
+    }
+  }
+
+  Future<List<MemberBranch>> _fetchBranchesForQr() async {
+    final session = await _sessionStorage.loadSession();
+    if (session == null || session.token.isEmpty) {
+      throw const MembershipException(
+        'Token tidak tersedia. Silakan login ulang.',
+      );
+    }
+
+    final branches = await _membershipService.fetchBranches(
+      token: session.token,
+      tokenType: session.tokenType,
+    );
+
+    if (mounted) {
+      setState(() {
+        _branches = branches;
+      });
+    }
+
+    return branches;
+  }
+
+  String? _extractBranchIdFromQr(String rawValue) {
+    final trimmed = rawValue.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    final uri = Uri.tryParse(trimmed);
+    final branchId = uri?.queryParameters['branch_id']?.trim();
+    if (branchId != null && branchId.isNotEmpty) {
+      return branchId;
+    }
+
+    return null;
+  }
+
+  Future<void> _showBranchSelected(MemberBranch branch) async {
     final activeMembership = _activeMembershipForBranch(branch);
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => _BranchMembershipOptionsScreen(
           branch: branch,
@@ -341,41 +494,99 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
           ),
         ),
       ),
-      body: SafeArea(
-        top: false,
-        bottom: false,
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            _buildSegmentedTabs(
-              surfaceColor: surfaceColor,
-              inkSoft: inkSoft,
+      body: Stack(
+        children: [
+          SafeArea(
+            top: false,
+            bottom: false,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                _buildSegmentedTabs(
+                  surfaceColor: surfaceColor,
+                  inkSoft: inkSoft,
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: _tabIndex == 0
+                      ? _buildActiveMembershipsView(
+                          isDark: isDark,
+                          surfaceColor: surfaceColor,
+                          surfaceSoft: surfaceSoft,
+                          inkColor: inkColor,
+                          muted: muted,
+                          borderColor: borderColor,
+                        )
+                      : _buildBuyPackageView(
+                          isDark: isDark,
+                          surfaceColor: surfaceColor,
+                          surfaceSoft: surfaceSoft,
+                          inkColor: inkColor,
+                          muted: muted,
+                          borderColor: borderColor,
+                        ),
+                ),
+              ],
             ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: _tabIndex == 0
-                  ? _buildActiveMembershipsView(
-                      isDark: isDark,
-                      surfaceColor: surfaceColor,
-                      surfaceSoft: surfaceSoft,
-                      inkColor: inkColor,
-                      muted: muted,
-                      borderColor: borderColor,
-                    )
-                  : _buildBuyPackageView(
-                      isDark: isDark,
-                      surfaceColor: surfaceColor,
-                      surfaceSoft: surfaceSoft,
-                      inkColor: inkColor,
-                      muted: muted,
-                      borderColor: borderColor,
+          ),
+          if (_isResolvingScannedQr)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: 220,
+                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF18191C) : Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.16),
+                          blurRadius: 24,
+                          offset: const Offset(0, 14),
+                        ),
+                      ],
                     ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: CircularProgressIndicator(strokeWidth: 3),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Membuka branch...',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: inkColor,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'QR sedang diproses, tunggu sebentar.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: muted,
+                            fontSize: 13.5,
+                            height: 1.45,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+	                ),
+	              ),
+	            ),
+	        ],
+	      ),
+	    );
+	  }
 
   Widget _buildSegmentedTabs({
     required Color surfaceColor,
@@ -1176,17 +1387,6 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
                           color: inkColor,
                           fontWeight: FontWeight.w800,
                           fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        branch.id.isEmpty
-                            ? 'Branch ID tidak tersedia'
-                            : 'Branch ID ${branch.id}',
-                        style: TextStyle(
-                          color: muted,
-                          fontSize: 12.5,
-                          height: 1.35,
                         ),
                       ),
                     ],

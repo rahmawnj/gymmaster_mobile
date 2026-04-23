@@ -184,7 +184,7 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
                     child: Column(
                       children: [
                         _buildTopBar(context),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 10),
                         _buildGreetingCard(context),
                         const SizedBox(height: 20),
                         _buildMembershipCard(),
@@ -210,7 +210,7 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
                     _buildQuickActions(context),
                     const SizedBox(height: 24),
                     _buildPromoCard(context),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 14),
                     _buildRecentVisitCard(context),
                   ],
                 ),

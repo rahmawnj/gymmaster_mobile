@@ -6,7 +6,6 @@ import '../models/user.dart';
 import '../services/member_dashboard_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
-import 'qr_scanner_screen.dart';
 
 class ScanQrHubScreen extends StatefulWidget {
   final User currentUser;
@@ -18,7 +17,6 @@ class ScanQrHubScreen extends StatefulWidget {
 }
 
 class _ScanQrHubScreenState extends State<ScanQrHubScreen> {
-  String? _lastScanResult;
   int _qrRenderNonce = 0;
   MemberDashboard? _dashboard;
   bool _isRefreshing = false;
@@ -59,20 +57,6 @@ class _ScanQrHubScreenState extends State<ScanQrHubScreen> {
       });
       _loadDashboardData();
     }
-  }
-
-  Future<void> _openScanner() async {
-    final result = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const QrScannerScreen()),
-    );
-
-    if (!mounted || result == null || result.trim().isEmpty) {
-      return;
-    }
-
-    setState(() {
-      _lastScanResult = result;
-    });
   }
 
   Future<void> _loadDashboardData({bool showSuccessMessage = false}) async {
@@ -178,7 +162,7 @@ class _ScanQrHubScreenState extends State<ScanQrHubScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Data member diambil dari endpoint GET /members/dashboard. Scan QR Code ini di gate untuk masuk ke dalam Gym.',
+                  'Scan QR Code ini di gate untuk masuk ke dalam Gym.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: onSurfaceVariant.withValues(alpha: 0.9),
@@ -310,47 +294,7 @@ class _ScanQrHubScreenState extends State<ScanQrHubScreen> {
                           letterSpacing: 0.6,
                         ),
                       ),
-                      const SizedBox(height: 14),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: IconButton(
-                          onPressed: () =>
-                              _loadDashboardData(showSuccessMessage: true),
-                          style: IconButton.styleFrom(
-                            backgroundColor: isDark
-                                ? const Color(0xFF222429)
-                                : const Color(0xFFF4F5F7),
-                            foregroundColor: isDark
-                                ? Colors.white.withValues(alpha: 0.88)
-                                : onSurface.withValues(alpha: 0.78),
-                            disabledBackgroundColor: isDark
-                                ? const Color(0xFF222429)
-                                : const Color(0xFFF4F5F7),
-                            disabledForegroundColor: isDark
-                                ? Colors.white.withValues(alpha: 0.5)
-                                : onSurface.withValues(alpha: 0.42),
-                            minimumSize: const Size(44, 44),
-                            side: BorderSide(
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.08)
-                                  : Colors.black.withValues(alpha: 0.06),
-                            ),
-                          ),
-                          icon: Icon(
-                            Icons.refresh_rounded,
-                            color: _isRefreshing ? AppTheme.primary : null,
-                          ),
-                        ),
-                      ),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _openScanner,
-                    child: const Text('Mulai scan QR'),
                   ),
                 ),
               ],

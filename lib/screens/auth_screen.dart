@@ -17,7 +17,8 @@ class AuthScreen extends StatefulWidget {
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends State<AuthScreen> {
+class _AuthScreenState extends State<AuthScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _authService = const AuthService();
   final _sessionStorage = const SessionStorage();
@@ -39,6 +40,8 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _obscurePassword = true;
   bool _sheetVisible = false;
   bool _sheetExpanded = true;
+  late final AnimationController _sheetSwitchController;
+  late final Animation<double> _sheetSwitchOffset;
 
   @override
   void initState() {
@@ -54,6 +57,26 @@ class _AuthScreenState extends State<AuthScreen> {
     _subDistrictIdController = TextEditingController();
     _postCodeController = TextEditingController();
     _addressController = TextEditingController();
+    _sheetSwitchController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+    _sheetSwitchOffset = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(
+          begin: 0.0,
+          end: 28.0,
+        ).chain(CurveTween(curve: Curves.easeInCubic)),
+        weight: 44,
+      ),
+      TweenSequenceItem(
+        tween: Tween(
+          begin: 28.0,
+          end: 0.0,
+        ).chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 56,
+      ),
+    ]).animate(_sheetSwitchController);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -75,6 +98,7 @@ class _AuthScreenState extends State<AuthScreen> {
     _subDistrictIdController.dispose();
     _postCodeController.dispose();
     _addressController.dispose();
+    _sheetSwitchController.dispose();
     super.dispose();
   }
 
@@ -207,12 +231,21 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   void _switchMode(bool isLogin) {
-    if (_isLoginMode == isLogin || _isSubmitting) return;
+    if (_isSubmitting) return;
     FocusScope.of(context).unfocus();
+    if (_isLoginMode == isLogin) {
+      if (!_sheetExpanded) {
+        setState(() {
+          _sheetExpanded = true;
+        });
+      }
+      return;
+    }
     setState(() {
       _isLoginMode = isLogin;
       _sheetExpanded = true;
     });
+    _sheetSwitchController.forward(from: 0);
   }
 
   @override
@@ -306,17 +339,26 @@ class _AuthScreenState extends State<AuthScreen> {
                     duration: const Duration(milliseconds: 460),
                     curve: Curves.easeOutBack,
                     offset: _sheetVisible ? Offset.zero : const Offset(0, 1),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 280),
-                      curve: Curves.easeOutCubic,
-                      height: mediaQuery.size.height * sheetHeightFactor,
-                      width: double.infinity,
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 560),
-                          child: _buildBottomSheet(theme),
-                        ),
-                      ),
+                    child: AnimatedBuilder(
+                      animation: _sheetSwitchOffset,
+                      child: _buildBottomSheet(theme),
+                      builder: (context, child) {
+                        return Transform.translate(
+                          offset: Offset(0, _sheetSwitchOffset.value),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 280),
+                            curve: Curves.easeOutCubic,
+                            height: mediaQuery.size.height * sheetHeightFactor,
+                            width: double.infinity,
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 560),
+                                child: child,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -462,12 +504,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _isLoginMode = true;
-                          _sheetExpanded = true;
-                        });
-                      },
+                      onPressed: () => _switchMode(true),
                       child: const Text('Login'),
                     ),
                   ),
@@ -475,12 +512,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton(
-                      onPressed: () {
-                        setState(() {
-                          _isLoginMode = false;
-                          _sheetExpanded = true;
-                        });
-                      },
+                      onPressed: () => _switchMode(false),
                       child: const Text('Register'),
                     ),
                   ),
