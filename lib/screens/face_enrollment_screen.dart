@@ -399,6 +399,109 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     return '-$rounded° s/d $rounded°';
   }
 
+  bool get _isFaceDetected =>
+      _geometry.faceCount == 1 && _geometry.primaryFace != null;
+
+  bool get _isFaceSizedWell => _geometry.isLargeEnough && !_geometry.isTooLarge;
+
+  String get _guideLabelText {
+    if (_countdownValue != null) {
+      return 'Range aman, auto capture';
+    }
+    if (_isReadyForCountdown) {
+      return _hasBlinked
+          ? 'Range aman, auto capture'
+          : 'Wajah pas, kedipkan kedua mata';
+    }
+    if (_geometry.faceCount == 0) {
+      return 'Arahkan wajah ke oval';
+    }
+    if (_geometry.faceCount > 1) {
+      return 'Pastikan hanya satu wajah';
+    }
+    if (!_isFaceSizedWell) {
+      return _geometry.isTooLarge ? 'Mundur sedikit' : 'Dekatkan sedikit';
+    }
+    if (!_geometry.isCentered) {
+      return 'Posisikan di tengah oval';
+    }
+    if (!_geometry.hasAcceptableRoll) {
+      return 'Luruskan kepala';
+    }
+    if (!_geometry.hasNeutralYaw) {
+      return 'Hadapkan wajah lurus';
+    }
+    if (!_geometry.hasNeutralPitch) {
+      return 'Sejajarkan dagu';
+    }
+    if (!_isFaceStable) {
+      return 'Tahan posisi sebentar';
+    }
+    if (!_isPreviewSharpEnough) {
+      return 'Preview masih blur';
+    }
+    return 'Sesuaikan posisi wajah';
+  }
+
+  String get _statusHeadlineText {
+    if (_countdownValue != null) {
+      return _countdownMessage;
+    }
+    if (_geometry.faceCount == 0) {
+      return 'Arahkan wajah ke tengah oval supaya deteksi mulai aktif.';
+    }
+    if (_geometry.faceCount > 1) {
+      return 'Deteksi membaca lebih dari satu wajah. Sisakan satu wajah saja di frame.';
+    }
+    if (!_isFaceSizedWell) {
+      return _geometry.isTooLarge
+          ? 'Wajah terlalu dekat. Mundur sedikit sampai ukuran wajah pas.'
+          : 'Wajah masih terlalu jauh. Dekatkan sedikit ke kamera.';
+    }
+    if (!_geometry.isCentered) {
+      return 'Wajah sudah terdeteksi, tapi titik tengahnya belum pas di area oval.';
+    }
+    if (!_geometry.hasAcceptableRoll) {
+      return 'Kepala masih agak miring. Luruskan dulu supaya frame terkunci.';
+    }
+    if (!_geometry.hasNeutralYaw) {
+      return 'Wajah masih menoleh. Hadapkan lebih lurus ke depan.';
+    }
+    if (!_geometry.hasNeutralPitch) {
+      return 'Dagu belum sejajar. Naikkan atau turunkan sedikit.';
+    }
+    if (!_isFaceStable) {
+      return 'Posisi sudah bagus. Tahan sebentar sampai wajah stabil.';
+    }
+    if (!_isPreviewSharpEnough) {
+      return 'Preview masih blur. Tahan HP sebentar sampai gambar lebih tajam.';
+    }
+    if (!_hasBlinked) {
+      return 'Wajah sudah terkunci. Kedipkan kedua mata untuk lanjut verifikasi.';
+    }
+    return 'Semua syarat terpenuhi. Auto capture akan berjalan otomatis.';
+  }
+
+  Color get _statusAccentColor {
+    if (_countdownValue != null || _isReadyForCountdown) {
+      return const Color(0xFF7EF2BC);
+    }
+    if (!_isFaceDetected) {
+      return Colors.white.withValues(alpha: 0.88);
+    }
+    if (!_isFaceSizedWell ||
+        !_geometry.isCentered ||
+        !_geometry.hasAcceptableRoll ||
+        !_geometry.hasNeutralYaw ||
+        !_geometry.hasNeutralPitch) {
+      return const Color(0xFFFF8A65);
+    }
+    if (!_isFaceStable || !_isPreviewSharpEnough) {
+      return const Color(0xFFFFC857);
+    }
+    return Colors.white.withValues(alpha: 0.88);
+  }
+
   Color get _guideFrameColor {
     if (_countdownValue != null || _isCapturing) {
       return const Color(0xFF7EF2BC);
@@ -913,6 +1016,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
   Widget _buildGuideLabel() {
     final ready = _countdownValue != null || _isReadyForCountdown;
+    final accentColor = _statusAccentColor;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -920,20 +1024,16 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       decoration: BoxDecoration(
         color: ready
             ? const Color(0xFF173828).withValues(alpha: 0.92)
-            : Colors.black.withValues(alpha: 0.48),
+            : Colors.black.withValues(alpha: 0.56),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: ready
-              ? const Color(0xFF7EF2BC).withValues(alpha: 0.65)
-              : Colors.white.withValues(alpha: 0.10),
+          color: accentColor.withValues(alpha: ready ? 0.65 : 0.38),
         ),
       ),
       child: Text(
-        ready
-            ? 'Range aman, auto capture'
-            : 'Pastikan wajah masuk penuh ke oval',
+        _guideLabelText,
         style: TextStyle(
-          color: ready ? const Color(0xFF7EF2BC) : Colors.white,
+          color: ready ? const Color(0xFF7EF2BC) : accentColor,
           fontWeight: FontWeight.w700,
           fontSize: 12.5,
         ),
@@ -1052,6 +1152,42 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.92),
             fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _statusAccentColor.withValues(alpha: 0.30),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                _isReadyForCountdown
+                    ? Icons.verified_rounded
+                    : Icons.tips_and_updates_outlined,
+                size: 18,
+                color: _statusAccentColor,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _statusHeadlineText,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    height: 1.35,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
