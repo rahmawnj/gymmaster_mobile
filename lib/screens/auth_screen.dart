@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../models/auth_session.dart';
@@ -19,6 +21,12 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen>
     with SingleTickerProviderStateMixin {
+  // Ubah nilai ini kalau seluruh kartu/login sheet ingin dinaikkan atau diturunkan.
+  static const double _cardStackVerticalOffset = -10;
+  static const double _collapsedSheetMinHeight = 286;
+  static const double _loginSheetMinHeight = 410;
+  static const double _registerSheetMinHeight = 560;
+
   final _formKey = GlobalKey<FormState>();
   final _authService = const AuthService();
   final _sessionStorage = const SessionStorage();
@@ -142,7 +150,9 @@ class _AuthScreenState extends State<AuthScreen>
 
           final mergedUser = session.user.copyWith(
             id: session.user.id.isNotEmpty ? session.user.id : member.id,
-            userId: member.userId.isNotEmpty ? member.userId : session.user.userId,
+            userId: member.userId.isNotEmpty
+                ? member.userId
+                : session.user.userId,
             memberCode: member.memberCode.isNotEmpty
                 ? member.memberCode
                 : session.user.memberCode,
@@ -152,7 +162,9 @@ class _AuthScreenState extends State<AuthScreen>
             provinceId: member.provinceId.isNotEmpty
                 ? member.provinceId
                 : session.user.provinceId,
-            cityId: member.cityId.isNotEmpty ? member.cityId : session.user.cityId,
+            cityId: member.cityId.isNotEmpty
+                ? member.cityId
+                : session.user.cityId,
             districtId: member.districtId.isNotEmpty
                 ? member.districtId
                 : session.user.districtId,
@@ -168,7 +180,9 @@ class _AuthScreenState extends State<AuthScreen>
             createdAt: member.createdAt.isNotEmpty
                 ? member.createdAt
                 : session.user.createdAt,
-            status: member.status.isNotEmpty ? member.status : session.user.status,
+            status: member.status.isNotEmpty
+                ? member.status
+                : session.user.status,
             isActive: member.status.isNotEmpty
                 ? member.isActive
                 : session.user.isActive,
@@ -209,9 +223,7 @@ class _AuthScreenState extends State<AuthScreen>
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            'Gagal terhubung ke server. ${ApiConfig.serverHint}',
-          ),
+          content: Text('Gagal terhubung ke server. ${ApiConfig.serverHint}'),
         ),
       );
     } finally {
@@ -226,7 +238,9 @@ class _AuthScreenState extends State<AuthScreen>
   void _openHome(AuthSession session) {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => MainShellScreen(currentUser: session.user)),
+      MaterialPageRoute(
+        builder: (_) => MainShellScreen(currentUser: session.user),
+      ),
     );
   }
 
@@ -252,122 +266,160 @@ class _AuthScreenState extends State<AuthScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
-    final horizontalPadding = mediaQuery.size.width < 360 ? 20.0 : 36.0;
-    final expandedFactor = _isLoginMode ? 0.48 : 0.70;
-    final collapsedFactor = mediaQuery.size.height < 760 ? 0.38 : 0.35;
-    final sheetHeightFactor =
-        _sheetExpanded ? expandedFactor : collapsedFactor;
 
     return Scaffold(
       backgroundColor: Colors.black,
       resizeToAvoidBottomInset: false,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF130809), Color(0xFF221011), Color(0xFF090909)],
-          ),
-        ),
-        child: Stack(
-          children: [
-            _buildBackgroundOrnaments(),
-            SafeArea(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  horizontalPadding,
-                  20,
-                  horizontalPadding,
-                  20,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 24),
-                    const SizedBox(
-                      width: 124,
-                      height: 124,
-                      child: Center(
-                        child: AppLogo(size: 88),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 260),
-                      child: Center(
-                        key: ValueKey(_isLoginMode),
-                        child: Column(
-                          children: [
-                            Text(
-                              _isLoginMode ? 'Welcome Back' : 'Create Account',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.headlineMedium?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _isLoginMode
-                                  ? 'Login to continue.'
-                                  : 'Lengkapi data untuk membuat akun baru.',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.72),
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                  ],
-                ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final horizontalPadding = mediaQuery.size.width < 360 ? 20.0 : 36.0;
+          final sheetHeight = _resolveSheetHeight(
+            mediaQuery: mediaQuery,
+            viewportHeight: constraints.maxHeight,
+          );
+
+          return Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFF130809),
+                  Color(0xFF221011),
+                  Color(0xFF090909),
+                ],
               ),
             ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: AnimatedPadding(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutCubic,
-                padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 360),
-                  opacity: _sheetVisible ? 1 : 0,
-                  child: AnimatedSlide(
-                    duration: const Duration(milliseconds: 460),
-                    curve: Curves.easeOutBack,
-                    offset: _sheetVisible ? Offset.zero : const Offset(0, 1),
-                    child: AnimatedBuilder(
-                      animation: _sheetSwitchOffset,
-                      child: _buildBottomSheet(theme),
-                      builder: (context, child) {
-                        return Transform.translate(
-                          offset: Offset(0, _sheetSwitchOffset.value),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 280),
-                            curve: Curves.easeOutCubic,
-                            height: mediaQuery.size.height * sheetHeightFactor,
-                            width: double.infinity,
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 560),
-                                child: child,
-                              ),
+            child: Stack(
+              children: [
+                _buildBackgroundOrnaments(),
+                SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      20,
+                      horizontalPadding,
+                      20,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 24),
+                        const SizedBox(
+                          width: 124,
+                          height: 124,
+                          child: Center(child: AppLogo(size: 88)),
+                        ),
+                        const SizedBox(height: 20),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 260),
+                          child: Center(
+                            key: ValueKey(_isLoginMode),
+                            child: Column(
+                              children: [
+                                Text(
+                                  _isLoginMode
+                                      ? 'Welcome Back'
+                                      : 'Create Account',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.headlineMedium
+                                      ?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _isLoginMode
+                                      ? 'Login to continue.'
+                                      : 'Lengkapi data untuk membuat akun baru.',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.72),
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      },
+                        ),
+                        const Spacer(),
+                      ],
                     ),
                   ),
                 ),
-              ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: AnimatedPadding(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    padding: EdgeInsets.only(
+                      bottom: mediaQuery.viewInsets.bottom,
+                    ),
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 360),
+                      opacity: _sheetVisible ? 1 : 0,
+                      child: AnimatedSlide(
+                        duration: const Duration(milliseconds: 460),
+                        curve: Curves.easeOutBack,
+                        offset: _sheetVisible
+                            ? Offset.zero
+                            : const Offset(0, 1),
+                        child: AnimatedBuilder(
+                          animation: _sheetSwitchOffset,
+                          child: _buildBottomSheet(theme),
+                          builder: (context, child) {
+                            return Transform.translate(
+                              offset: Offset(
+                                0,
+                                _sheetSwitchOffset.value +
+                                    _cardStackVerticalOffset,
+                              ),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 280),
+                                curve: Curves.easeOutCubic,
+                                height: sheetHeight,
+                                width: double.infinity,
+                                child: Center(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 560,
+                                    ),
+                                    child: child,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
+  }
+
+  double _resolveSheetHeight({
+    required MediaQueryData mediaQuery,
+    required double viewportHeight,
+  }) {
+    final expandedFactor = _isLoginMode ? 0.48 : 0.70;
+    final collapsedFactor = mediaQuery.size.height < 760 ? 0.38 : 0.35;
+    final heightFactor = _sheetExpanded ? expandedFactor : collapsedFactor;
+    final minHeight =
+        (_sheetExpanded
+            ? (_isLoginMode ? _loginSheetMinHeight : _registerSheetMinHeight)
+            : _collapsedSheetMinHeight) +
+        mediaQuery.padding.bottom;
+    final maxHeight = math.max(minHeight, viewportHeight - 12);
+    final preferredHeight = viewportHeight * heightFactor;
+
+    return preferredHeight.clamp(minHeight, maxHeight).toDouble();
   }
 
   Widget _buildBackgroundOrnaments() {
@@ -419,9 +471,7 @@ class _AuthScreenState extends State<AuthScreen>
             height: 68,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.14),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
             ),
           ),
         ),
@@ -476,50 +526,51 @@ class _AuthScreenState extends State<AuthScreen>
           ),
           const SizedBox(height: 14),
           if (!_sheetExpanded) ...[
-            Text(
-              'Masuk ke Gymmaster',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: AppTheme.ink,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Text(
-                'Pilih salah satu untuk lanjut.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppTheme.muted,
-                  height: 1.4,
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(18, 0, 18, 16 + bottomSafeArea),
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Masuk ke Gymmaster',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: AppTheme.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Pilih salah satu untuk lanjut.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.muted,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => _switchMode(true),
+                        child: const Text('Login'),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: () => _switchMode(false),
+                        child: const Text('Register'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 18),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _switchMode(true),
-                      child: const Text('Login'),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: () => _switchMode(false),
-                      child: const Text('Register'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 16 + bottomSafeArea),
           ] else ...[
             Text(
               _isLoginMode ? 'Login' : 'Register',
@@ -548,182 +599,187 @@ class _AuthScreenState extends State<AuthScreen>
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
                   child: Form(
                     key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (!_isLoginMode) ...[
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!_isLoginMode) ...[
+                          _buildField(
+                            controller: _nameController,
+                            label: 'Nama lengkap',
+                            icon: Icons.badge_outlined,
+                            validator: _requiredValidator('Nama diperlukan'),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
                         _buildField(
-                          controller: _nameController,
-                          label: 'Nama lengkap',
-                          icon: Icons.badge_outlined,
-                          validator: _requiredValidator('Nama diperlukan'),
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-                      _buildField(
-                        controller: _emailController,
-                        label: 'rahma@mail.com',
-                        icon: Icons.alternate_email_rounded,
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Email diperlukan';
-                          }
-                          if (!value.contains('@')) {
-                            return 'Email tidak valid';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 14),
-                      _buildField(
-                        controller: _passwordController,
-                        label: 'Masukkan password',
-                        icon: Icons.lock_outline_rounded,
-                        obscureText: _obscurePassword,
-                        trailing: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
+                          controller: _emailController,
+                          label: 'rahma@mail.com',
+                          icon: Icons.alternate_email_rounded,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Email diperlukan';
+                            }
+                            if (!value.contains('@')) {
+                              return 'Email tidak valid';
+                            }
+                            return null;
                           },
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            color: AppTheme.muted,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildField(
+                          controller: _passwordController,
+                          label: 'Masukkan password',
+                          icon: Icons.lock_outline_rounded,
+                          obscureText: _obscurePassword,
+                          trailing: IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: AppTheme.muted,
+                            ),
                           ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Password diperlukan';
+                            }
+                            if (value.length < 6) {
+                              return 'Password minimal 6 karakter';
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Password diperlukan';
-                          }
-                          if (value.length < 6) {
-                            return 'Password minimal 6 karakter';
-                          }
-                          return null;
-                        },
-                      ),
-                      if (!_isLoginMode) ...[
-                        const SizedBox(height: 14),
-                        _buildField(
-                          controller: _phoneController,
-                          label: 'Nomor telepon',
-                          icon: Icons.phone_outlined,
-                          keyboardType: TextInputType.phone,
-                          validator: _requiredValidator(
-                            'Nomor telepon diperlukan',
+                        if (!_isLoginMode) ...[
+                          const SizedBox(height: 14),
+                          _buildField(
+                            controller: _phoneController,
+                            label: 'Nomor telepon',
+                            icon: Icons.phone_outlined,
+                            keyboardType: TextInputType.phone,
+                            validator: _requiredValidator(
+                              'Nomor telepon diperlukan',
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildField(
-                          controller: _provinceIdController,
-                          label: 'Province ID',
-                          icon: Icons.map_outlined,
-                          keyboardType: TextInputType.number,
-                          validator: _numberValidator('Province ID wajib'),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildField(
-                          controller: _cityIdController,
-                          label: 'City ID',
-                          icon: Icons.location_city_outlined,
-                          keyboardType: TextInputType.number,
-                          validator: _numberValidator('City ID wajib'),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildField(
-                          controller: _districtIdController,
-                          label: 'District ID',
-                          icon: Icons.pin_drop_outlined,
-                          keyboardType: TextInputType.number,
-                          validator: _numberValidator('District ID wajib'),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildField(
-                          controller: _subDistrictIdController,
-                          label: 'Sub District ID',
-                          icon: Icons.place_outlined,
-                          keyboardType: TextInputType.number,
-                          validator: _numberValidator('Sub District ID wajib'),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildField(
-                          controller: _postCodeController,
-                          label: 'Post Code',
-                          icon: Icons.markunread_mailbox_outlined,
-                          keyboardType: TextInputType.number,
-                          validator: _requiredValidator('Post code diperlukan'),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildField(
-                          controller: _addressController,
-                          label: 'Alamat',
-                          icon: Icons.home_outlined,
-                          maxLines: 3,
-                          validator: _requiredValidator('Alamat diperlukan'),
-                        ),
-                      ],
-                      const SizedBox(height: 22),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isSubmitting ? null : _handleSubmit,
-                          child: _isSubmitting
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 1,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
+                          const SizedBox(height: 14),
+                          _buildField(
+                            controller: _provinceIdController,
+                            label: 'Province ID',
+                            icon: Icons.map_outlined,
+                            keyboardType: TextInputType.number,
+                            validator: _numberValidator('Province ID wajib'),
+                          ),
+                          const SizedBox(height: 14),
+                          _buildField(
+                            controller: _cityIdController,
+                            label: 'City ID',
+                            icon: Icons.location_city_outlined,
+                            keyboardType: TextInputType.number,
+                            validator: _numberValidator('City ID wajib'),
+                          ),
+                          const SizedBox(height: 14),
+                          _buildField(
+                            controller: _districtIdController,
+                            label: 'District ID',
+                            icon: Icons.pin_drop_outlined,
+                            keyboardType: TextInputType.number,
+                            validator: _numberValidator('District ID wajib'),
+                          ),
+                          const SizedBox(height: 14),
+                          _buildField(
+                            controller: _subDistrictIdController,
+                            label: 'Sub District ID',
+                            icon: Icons.place_outlined,
+                            keyboardType: TextInputType.number,
+                            validator: _numberValidator(
+                              'Sub District ID wajib',
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _buildField(
+                            controller: _postCodeController,
+                            label: 'Post Code',
+                            icon: Icons.markunread_mailbox_outlined,
+                            keyboardType: TextInputType.number,
+                            validator: _requiredValidator(
+                              'Post code diperlukan',
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _buildField(
+                            controller: _addressController,
+                            label: 'Alamat',
+                            icon: Icons.home_outlined,
+                            maxLines: 3,
+                            validator: _requiredValidator('Alamat diperlukan'),
+                          ),
+                        ],
+                        const SizedBox(height: 22),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isSubmitting ? null : _handleSubmit,
+                            child: _isSubmitting
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
                                     ),
+                                  )
+                                : Text(
+                                    _isLoginMode ? 'Sign in' : 'Create account',
                                   ),
-                                )
-                              : Text(
-                                  _isLoginMode ? 'Sign in' : 'Create account',
-                                ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Center(
-                        child: Wrap(
-                          spacing: 4,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Text(
-                              _isLoginMode
-                                  ? 'Belum punya akun?'
-                                  : 'Sudah punya akun?',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.black,
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: _isSubmitting
-                                  ? null
-                                  : () => _switchMode(!_isLoginMode),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                foregroundColor: AppTheme.primary,
-                              ),
-                              child: Text(
-                                _isLoginMode ? 'Register' : 'Login',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Wrap(
+                            spacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                _isLoginMode
+                                    ? 'Belum punya akun?'
+                                    : 'Sudah punya akun?',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.black,
                                 ),
                               ),
-                            ),
-                          ],
+                              TextButton(
+                                onPressed: _isSubmitting
+                                    ? null
+                                    : () => _switchMode(!_isLoginMode),
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  foregroundColor: AppTheme.primary,
+                                ),
+                                child: Text(
+                                  _isLoginMode ? 'Register' : 'Login',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
+                        const SizedBox(height: 8),
+                      ],
+                    ),
                   ),
                 ),
-              ),
               ),
             ),
           ],

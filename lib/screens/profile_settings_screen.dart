@@ -1,9 +1,8 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../models/auth_session.dart';
 import '../models/face_enrollment_result.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
@@ -12,26 +11,178 @@ import '../theme/app_theme.dart';
 import 'auth_screen.dart';
 import 'display_settings_screen.dart';
 import 'face_enrollment_screen.dart';
-import 'security_settings_screen.dart';
 
 Widget _buildProfileImage({
   required String imageUrl,
   required Widget fallback,
   BoxFit fit = BoxFit.cover,
+  String? cacheBuster,
+  Key? widgetKey,
 }) {
-  final normalizedUrl = imageUrl.trim();
+  final normalizedUrl = _resolveProfileImageUrl(
+    imageUrl: imageUrl,
+    cacheBuster: cacheBuster,
+  );
   if (normalizedUrl.isEmpty) {
     return fallback;
   }
 
   return Image.network(
+    key: widgetKey,
     normalizedUrl,
     fit: fit,
+    gaplessPlayback: true,
     filterQuality: FilterQuality.medium,
     webHtmlElementStrategy: kIsWeb
         ? WebHtmlElementStrategy.prefer
         : WebHtmlElementStrategy.never,
-    errorBuilder: (_, __, ___) => fallback,
+    errorBuilder: (context, error, stackTrace) => fallback,
+  );
+}
+
+String _resolveProfileImageUrl({
+  required String imageUrl,
+  String? cacheBuster,
+}) {
+  final normalizedUrl = imageUrl.trim();
+  final normalizedCacheBuster = cacheBuster?.trim() ?? '';
+  if (normalizedUrl.isEmpty || normalizedCacheBuster.isEmpty) {
+    return normalizedUrl;
+  }
+
+  final uri = Uri.tryParse(normalizedUrl);
+  if (uri == null) {
+    return normalizedUrl;
+  }
+
+  final queryParameters = Map<String, String>.from(uri.queryParameters);
+  queryParameters['v'] = normalizedCacheBuster;
+  return uri.replace(queryParameters: queryParameters).toString();
+}
+
+String _nextProfileImageRevision() =>
+    DateTime.now().microsecondsSinceEpoch.toString();
+
+String _firstNonEmpty(List<String?> values) {
+  for (final value in values) {
+    final trimmed = value?.trim() ?? '';
+    if (trimmed.isNotEmpty) {
+      return trimmed;
+    }
+  }
+
+  return '';
+}
+
+User _mergeProfileUserData({
+  required User baseUser,
+  User? mobileProfile,
+  User? updatedProfile,
+  User? enrichedProfile,
+}) {
+  final status = _firstNonEmpty([
+    mobileProfile?.status,
+    updatedProfile?.status,
+    enrichedProfile?.status,
+    baseUser.status,
+  ]);
+  final statusOwnerIsActive = mobileProfile?.status.trim().isNotEmpty == true
+      ? mobileProfile!.isActive
+      : updatedProfile?.status.trim().isNotEmpty == true
+      ? updatedProfile!.isActive
+      : enrichedProfile?.status.trim().isNotEmpty == true
+      ? enrichedProfile!.isActive
+      : baseUser.isActive;
+
+  return baseUser.copyWith(
+    id: _firstNonEmpty([
+      mobileProfile?.id,
+      updatedProfile?.id,
+      enrichedProfile?.id,
+      baseUser.id,
+    ]),
+    userId: _firstNonEmpty([
+      mobileProfile?.userId,
+      updatedProfile?.userId,
+      enrichedProfile?.userId,
+      baseUser.userId,
+    ]),
+    name: _firstNonEmpty([
+      mobileProfile?.name,
+      updatedProfile?.name,
+      enrichedProfile?.name,
+      baseUser.name,
+    ]),
+    memberCode: _firstNonEmpty([
+      mobileProfile?.memberCode,
+      updatedProfile?.memberCode,
+      enrichedProfile?.memberCode,
+      baseUser.memberCode,
+    ]),
+    email: _firstNonEmpty([
+      enrichedProfile?.email,
+      mobileProfile?.email,
+      updatedProfile?.email,
+      baseUser.email,
+    ]),
+    phone: _firstNonEmpty([
+      mobileProfile?.phone,
+      updatedProfile?.phone,
+      enrichedProfile?.phone,
+      baseUser.phone,
+    ]),
+    address: _firstNonEmpty([
+      mobileProfile?.address,
+      updatedProfile?.address,
+      enrichedProfile?.address,
+      baseUser.address,
+    ]),
+    provinceId: _firstNonEmpty([
+      enrichedProfile?.provinceId,
+      mobileProfile?.provinceId,
+      updatedProfile?.provinceId,
+      baseUser.provinceId,
+    ]),
+    cityId: _firstNonEmpty([
+      enrichedProfile?.cityId,
+      mobileProfile?.cityId,
+      updatedProfile?.cityId,
+      baseUser.cityId,
+    ]),
+    districtId: _firstNonEmpty([
+      enrichedProfile?.districtId,
+      mobileProfile?.districtId,
+      updatedProfile?.districtId,
+      baseUser.districtId,
+    ]),
+    subDistrictId: _firstNonEmpty([
+      enrichedProfile?.subDistrictId,
+      mobileProfile?.subDistrictId,
+      updatedProfile?.subDistrictId,
+      baseUser.subDistrictId,
+    ]),
+    postCode: _firstNonEmpty([
+      enrichedProfile?.postCode,
+      mobileProfile?.postCode,
+      updatedProfile?.postCode,
+      baseUser.postCode,
+    ]),
+    status: status,
+    isActive: status.trim().isNotEmpty
+        ? statusOwnerIsActive
+        : baseUser.isActive,
+    imageUrl: _firstNonEmpty([
+      mobileProfile?.imageUrl,
+      updatedProfile?.imageUrl,
+      enrichedProfile?.imageUrl,
+      baseUser.imageUrl,
+    ]),
+    createdAt: _firstNonEmpty([
+      mobileProfile?.createdAt,
+      updatedProfile?.createdAt,
+      enrichedProfile?.createdAt,
+      baseUser.createdAt,
+    ]),
   );
 }
 
@@ -59,6 +210,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   final _sessionStorage = const SessionStorage();
   final _authService = const AuthService();
   late User _user;
+  late String _profileImageRevision;
   FaceEnrollmentResult? _faceEnrollmentResult;
   bool _isRefreshingProfile = false;
 
@@ -66,6 +218,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   void initState() {
     super.initState();
     _user = widget.initialUser;
+    _profileImageRevision = _nextProfileImageRevision();
     _refreshProfile();
   }
 
@@ -84,9 +237,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         oldWidget.initialUser.name != widget.initialUser.name ||
         oldWidget.initialUser.phone != widget.initialUser.phone ||
         oldWidget.initialUser.address != widget.initialUser.address ||
-        oldWidget.initialUser.status != widget.initialUser.status) {
+        oldWidget.initialUser.status != widget.initialUser.status ||
+        oldWidget.initialUser.imageUrl != widget.initialUser.imageUrl) {
       setState(() {
         _user = widget.initialUser;
+        _profileImageRevision = _nextProfileImageRevision();
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -200,6 +355,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
       setState(() {
         _user = mergedUser;
+        _profileImageRevision = _nextProfileImageRevision();
       });
       widget.onUserUpdated?.call(mergedUser);
     } catch (_) {
@@ -218,88 +374,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     required User mobileProfile,
     User? enrichedProfile,
   }) {
-    return baseUser.copyWith(
-      id: mobileProfile.id.isNotEmpty
-          ? mobileProfile.id
-          : (enrichedProfile?.id.isNotEmpty == true
-              ? enrichedProfile!.id
-              : baseUser.id),
-      userId: mobileProfile.userId.isNotEmpty
-          ? mobileProfile.userId
-          : (enrichedProfile?.userId.isNotEmpty == true
-              ? enrichedProfile!.userId
-              : baseUser.userId),
-      // Profile screen should follow GET /members/profile/{memberId}.
-      name: mobileProfile.name.isNotEmpty
-          ? mobileProfile.name
-          : (enrichedProfile?.name.isNotEmpty == true
-              ? enrichedProfile!.name
-              : baseUser.name),
-      memberCode: mobileProfile.memberCode.isNotEmpty
-          ? mobileProfile.memberCode
-          : (enrichedProfile?.memberCode.isNotEmpty == true
-              ? enrichedProfile!.memberCode
-              : baseUser.memberCode),
-      email: enrichedProfile?.email.isNotEmpty == true
-          ? enrichedProfile!.email
-          : (mobileProfile.email.isNotEmpty
-              ? mobileProfile.email
-              : baseUser.email),
-      phone: mobileProfile.phone.isNotEmpty
-          ? mobileProfile.phone
-          : (enrichedProfile?.phone.isNotEmpty == true
-              ? enrichedProfile!.phone
-              : baseUser.phone),
-      address: mobileProfile.address.isNotEmpty
-          ? mobileProfile.address
-          : (enrichedProfile?.address.isNotEmpty == true
-              ? enrichedProfile!.address
-              : baseUser.address),
-      provinceId: enrichedProfile?.provinceId.isNotEmpty == true
-          ? enrichedProfile!.provinceId
-          : (mobileProfile.provinceId.isNotEmpty
-              ? mobileProfile.provinceId
-              : baseUser.provinceId),
-      cityId: enrichedProfile?.cityId.isNotEmpty == true
-          ? enrichedProfile!.cityId
-          : (mobileProfile.cityId.isNotEmpty
-              ? mobileProfile.cityId
-              : baseUser.cityId),
-      districtId: enrichedProfile?.districtId.isNotEmpty == true
-          ? enrichedProfile!.districtId
-          : (mobileProfile.districtId.isNotEmpty
-              ? mobileProfile.districtId
-              : baseUser.districtId),
-      subDistrictId: enrichedProfile?.subDistrictId.isNotEmpty == true
-          ? enrichedProfile!.subDistrictId
-          : (mobileProfile.subDistrictId.isNotEmpty
-              ? mobileProfile.subDistrictId
-              : baseUser.subDistrictId),
-      postCode: enrichedProfile?.postCode.isNotEmpty == true
-          ? enrichedProfile!.postCode
-          : (mobileProfile.postCode.isNotEmpty
-              ? mobileProfile.postCode
-              : baseUser.postCode),
-      status: mobileProfile.status.isNotEmpty
-          ? mobileProfile.status
-          : (enrichedProfile?.status.isNotEmpty == true
-              ? enrichedProfile!.status
-              : baseUser.status),
-      isActive: mobileProfile.status.isNotEmpty
-          ? mobileProfile.isActive
-          : (enrichedProfile?.status.isNotEmpty == true
-              ? enrichedProfile!.isActive
-              : baseUser.isActive),
-      imageUrl: mobileProfile.imageUrl.isNotEmpty
-          ? mobileProfile.imageUrl
-          : (enrichedProfile?.imageUrl.isNotEmpty == true
-              ? enrichedProfile!.imageUrl
-              : baseUser.imageUrl),
-      createdAt: mobileProfile.createdAt.isNotEmpty
-          ? mobileProfile.createdAt
-          : (enrichedProfile?.createdAt.isNotEmpty == true
-              ? enrichedProfile!.createdAt
-              : baseUser.createdAt),
+    return _mergeProfileUserData(
+      baseUser: baseUser,
+      mobileProfile: mobileProfile,
+      enrichedProfile: enrichedProfile,
     );
   }
 
@@ -309,7 +387,17 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _EditProfileSheet(initialUser: _user),
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.88,
+        minChildSize: 0.52,
+        maxChildSize: 0.94,
+        shouldCloseOnMinExtent: true,
+        builder: (context, scrollController) => _EditProfileSheet(
+          initialUser: _user,
+          scrollController: scrollController,
+        ),
+      ),
     );
 
     if (!mounted || updatedUser == null) {
@@ -318,6 +406,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
     setState(() {
       _user = updatedUser;
+      _profileImageRevision = _nextProfileImageRevision();
     });
     widget.onUserUpdated?.call(updatedUser);
     if (widget.popOnUpdate) {
@@ -329,24 +418,81 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
+        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
+        final dialogBackground = isDark
+            ? const Color(0xFF141414)
+            : Colors.white;
+        final titleColor = isDark ? Colors.white : const Color(0xFF111111);
+        final contentColor = isDark
+            ? Colors.white.withValues(alpha: 0.78)
+            : const Color(0xFF4B5563);
+        final cancelColor = isDark ? Colors.white : const Color(0xFF111111);
+        final confirmBackground = isDark
+            ? Colors.white
+            : const Color(0xFF111111);
+        final confirmForeground = isDark
+            ? const Color(0xFF111111)
+            : Colors.white;
+
         return AlertDialog(
+          backgroundColor: dialogBackground,
+          surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(26),
+            borderRadius: BorderRadius.circular(24),
           ),
-          title: const Text(
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+          contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          title: Text(
             'Keluar akun',
-            style: TextStyle(fontWeight: FontWeight.w800),
+            style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
           ),
-          content: const Text(
+          content: Text(
             'Yakin mau keluar dari akun ini sekarang?',
-            style: TextStyle(height: 1.5),
+            style: TextStyle(
+              color: contentColor,
+              height: 1.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           actions: [
             TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: cancelColor,
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Batal'),
             ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: confirmBackground,
+                foregroundColor: confirmForeground,
+                elevation: 0,
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Keluar'),
             ),
@@ -384,29 +530,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Foto verifikasi final sudah tersimpan lokal.')),
+      const SnackBar(
+        content: Text('Foto verifikasi final sudah tersimpan lokal.'),
+      ),
     );
-  }
-
-  void _showComingSoon(String title) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$title masih disiapkan.')),
-    );
-  }
-
-  void _handleBack() {
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-      return;
-    }
-    widget.onBackRequested?.call();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final onSurface = scheme.onSurface;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -414,21 +546,21 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         child: RefreshIndicator(
           onRefresh: _refreshProfile,
           child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
-          children: [
-            _buildHeroCard(),
-            const SizedBox(height: 18),
-            _buildProfileMenuList(),
-            const SizedBox(height: 26),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _handleLogout,
-                child: const Text('Keluar'),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+            children: [
+              _buildHeroCard(),
+              const SizedBox(height: 18),
+              _buildProfileMenuList(),
+              const SizedBox(height: 26),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _handleLogout,
+                  child: const Text('Keluar'),
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       ),
     );
@@ -494,6 +626,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                     child: ClipOval(
                       child: _buildProfileImage(
                         imageUrl: _user.imageUrl,
+                        cacheBuster: _profileImageRevision,
+                        widgetKey: ValueKey(
+                          '${_user.imageUrl}|$_profileImageRevision',
+                        ),
                         fallback: Image.asset(
                           'assets/images/logo/logo-icon-black-red.png',
                           fit: BoxFit.cover,
@@ -507,7 +643,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _user.name.trim().isEmpty ? 'Member Gymmaster' : _user.name,
+                          _user.name.trim().isEmpty
+                              ? 'Member Gymmaster'
+                              : _user.name,
                           style: TextStyle(
                             color: heroTextColor,
                             fontSize: 26,
@@ -549,70 +687,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     );
   }
 
-  Widget _buildFaceEnrollmentCard() {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final onSurface = scheme.onSurface;
-    final onSurfaceVariant = scheme.onSurfaceVariant;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF2E8),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              Icons.face_retouching_natural_rounded,
-              color: AppTheme.primary,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Selfie verifikasi',
-                  style: TextStyle(
-                    color: onSurface,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Liveness on-device dengan step tengah, sisi, sisi balik, lalu senyum.',
-                  style: TextStyle(
-                    color: onSurfaceVariant,
-                    fontSize: 12.5,
-                    height: 1.45,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          TextButton(
-            onPressed: _openFaceEnrollment,
-            child: Text(
-              _faceEnrollmentResult == null ? 'Mulai' : 'Ulangi',
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildProfileMenuList() {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final onSurface = scheme.onSurface;
     final onSurfaceVariant = scheme.onSurfaceVariant;
     final dividerColor = onSurfaceVariant.withValues(alpha: 0.18);
 
@@ -633,17 +710,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const DisplaySettingsScreen()),
-            );
-          },
-        ),
-        Divider(color: dividerColor),
-        _MenuRowTile(
-          icon: Icons.lock_outline_rounded,
-          title: 'Keamanan',
-          subtitle: 'Atur kunci aplikasi, PIN, dan proteksi akses.',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SecuritySettingsScreen()),
             );
           },
         ),
@@ -702,8 +768,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
 class _EditProfileSheet extends StatefulWidget {
   final User initialUser;
+  final ScrollController scrollController;
 
-  const _EditProfileSheet({required this.initialUser});
+  const _EditProfileSheet({
+    required this.initialUser,
+    required this.scrollController,
+  });
 
   @override
   State<_EditProfileSheet> createState() => _EditProfileSheetState();
@@ -722,13 +792,16 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   bool _isSaving = false;
   Uint8List? _selectedProfileBytes;
   String? _selectedProfileName;
+  int _selectedProfilePreviewVersion = 0;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.initialUser.name);
     _phoneController = TextEditingController(text: widget.initialUser.phone);
-    _addressController = TextEditingController(text: widget.initialUser.address);
+    _addressController = TextEditingController(
+      text: widget.initialUser.address,
+    );
   }
 
   @override
@@ -737,6 +810,115 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _phoneController.dispose();
     _addressController.dispose();
     super.dispose();
+  }
+
+  Future<User> _refreshProfileAfterUpdate({
+    required AuthSession session,
+    required User updateResponseUser,
+  }) async {
+    final baseUser = _mergeProfileUserData(
+      baseUser: session.user,
+      updatedProfile: widget.initialUser,
+    );
+    final patchedUser = _mergeProfileUserData(
+      baseUser: baseUser,
+      updatedProfile: updateResponseUser,
+    );
+
+    var accountUserId = _firstNonEmpty([
+      patchedUser.accountUserId,
+      widget.initialUser.accountUserId,
+      session.user.accountUserId,
+    ]);
+    var activeMemberId = _firstNonEmpty([
+      patchedUser.memberId,
+      widget.initialUser.memberId,
+      session.user.memberId,
+    ]);
+
+    User? enrichedProfile;
+    User? refreshedUser;
+
+    if (accountUserId.isNotEmpty && activeMemberId == accountUserId) {
+      try {
+        enrichedProfile = await _authService.fetchMemberProfile(
+          userId: accountUserId,
+          token: session.token,
+          tokenType: session.tokenType,
+        );
+        if (enrichedProfile.id.trim().isNotEmpty) {
+          activeMemberId = enrichedProfile.id.trim();
+        }
+      } catch (_) {
+        // Keep using the best local member id if resolving fails.
+      }
+    }
+
+    if (activeMemberId.isNotEmpty) {
+      try {
+        refreshedUser = await _authService.fetchMemberMobileProfile(
+          memberId: activeMemberId,
+          token: session.token,
+          tokenType: session.tokenType,
+        );
+      } on AuthException catch (error) {
+        final canResolveFromUserId =
+            error.message.toLowerCase().contains('record not found') &&
+            accountUserId.isNotEmpty;
+        if (canResolveFromUserId) {
+          try {
+            final resolvedProfile =
+                enrichedProfile ??
+                await _authService.fetchMemberProfile(
+                  userId: accountUserId,
+                  token: session.token,
+                  tokenType: session.tokenType,
+                );
+            enrichedProfile = resolvedProfile;
+            if (resolvedProfile.id.trim().isNotEmpty) {
+              refreshedUser = await _authService.fetchMemberMobileProfile(
+                memberId: resolvedProfile.id,
+                token: session.token,
+                tokenType: session.tokenType,
+              );
+            }
+          } catch (_) {
+            // Fall back to the merged update response if refresh is unavailable.
+          }
+        }
+      } catch (_) {
+        // Fall back to the merged update response if refresh is unavailable.
+      }
+    }
+
+    final shouldFetchEnrichedProfile =
+        accountUserId.isNotEmpty &&
+        enrichedProfile == null &&
+        (refreshedUser == null ||
+            refreshedUser.email.trim().isEmpty ||
+            refreshedUser.provinceId.trim().isEmpty ||
+            refreshedUser.cityId.trim().isEmpty ||
+            refreshedUser.districtId.trim().isEmpty ||
+            refreshedUser.subDistrictId.trim().isEmpty ||
+            refreshedUser.postCode.trim().isEmpty);
+
+    if (shouldFetchEnrichedProfile) {
+      try {
+        enrichedProfile = await _authService.fetchMemberProfile(
+          userId: accountUserId,
+          token: session.token,
+          tokenType: session.tokenType,
+        );
+      } catch (_) {
+        // Mobile profile plus local data is enough to prevent empty fields.
+      }
+    }
+
+    return _mergeProfileUserData(
+      baseUser: patchedUser,
+      mobileProfile: refreshedUser,
+      enrichedProfile: enrichedProfile,
+    );
   }
 
   Future<void> _handleSave() async {
@@ -751,10 +933,12 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     try {
       final session = await _sessionStorage.loadSession();
       if (session == null || session.token.isEmpty) {
-        throw const AuthException('Sesi login tidak ditemukan. Silakan login ulang.');
+        throw const AuthException(
+          'Sesi login tidak ditemukan. Silakan login ulang.',
+        );
       }
 
-      final updatedUser = await _authService.updateMemberProfile(
+      final updateResponseUser = await _authService.updateMemberProfile(
         name: _nameController.text.trim(),
         phone: _phoneController.text.trim(),
         address: _addressController.text.trim(),
@@ -762,6 +946,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         tokenType: session.tokenType,
         imageBytes: _selectedProfileBytes,
         imageFileName: _selectedProfileName,
+      );
+      final updatedUser = await _refreshProfileAfterUpdate(
+        session: session,
+        updateResponseUser: updateResponseUser,
       );
 
       await _sessionStorage.updateStoredUser(updatedUser);
@@ -777,9 +965,9 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } catch (_) {
       if (!mounted) {
         return;
@@ -816,6 +1004,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       setState(() {
         _selectedProfileBytes = bytes;
         _selectedProfileName = file.name;
+        _selectedProfilePreviewVersion++;
       });
     } catch (error, stackTrace) {
       debugPrint('===== PROFILE PICK IMAGE ERROR START =====');
@@ -826,9 +1015,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gagal mengambil file. Coba lagi.'),
-        ),
+        const SnackBar(content: Text('Gagal mengambil file. Coba lagi.')),
       );
     }
   }
@@ -851,7 +1038,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         child: Padding(
           padding: EdgeInsets.fromLTRB(20, 18, 20, bottomInset + 22),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.max,
             children: [
               Center(
                 child: Container(
@@ -864,71 +1051,103 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 ),
               ),
               const SizedBox(height: 18),
-              Flexible(
+              Expanded(
                 child: SingleChildScrollView(
+                  controller: widget.scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: ClampingScrollPhysics(),
+                  ),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   child: Form(
                     key: _formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                    'Edit akun',
-                    style: TextStyle(
-                      color: onSurface,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Perbarui data member kamu langsung dari slider ini.',
-                    style: TextStyle(
-                      color: onSurfaceVariant.withValues(alpha: 0.95),
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  _buildProfilePhotoPicker(),
-                  const SizedBox(height: 18),
-                  _buildReadOnlyCard(),
-                  const SizedBox(height: 18),
-                  _buildField(
-                    controller: _nameController,
-                    label: 'Nama lengkap',
-                    icon: Icons.badge_outlined,
-                  ),
-                  const SizedBox(height: 14),
-                  _buildField(
-                    controller: _phoneController,
-                    label: 'Nomor telepon',
-                    icon: Icons.phone_outlined,
-                  ),
-                  const SizedBox(height: 14),
-                  _buildField(
-                    controller: _addressController,
-                    label: 'Alamat',
-                    icon: Icons.home_outlined,
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _isSaving ? null : _handleSave,
-                      child: _isSaving
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.4,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Edit akun',
+                                    style: TextStyle(
+                                      color: onSurface,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => Navigator.of(context).pop(),
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: onSurface.withValues(alpha: 0.06),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    color: onSurface,
+                                    size: 20,
+                                  ),
                                 ),
                               ),
-                            )
-                          : const Text('Simpan perubahan'),
-                    ),
-                  ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        _buildProfilePhotoPicker(),
+                        const SizedBox(height: 18),
+                        _buildReadOnlyCard(),
+                        const SizedBox(height: 18),
+                        _buildField(
+                          controller: _nameController,
+                          label: 'Nama lengkap',
+                          icon: Icons.badge_outlined,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildField(
+                          controller: _phoneController,
+                          label: 'Nomor telepon',
+                          icon: Icons.phone_outlined,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildField(
+                          controller: _addressController,
+                          label: 'Alamat',
+                          icon: Icons.home_outlined,
+                          maxLines: 3,
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isSaving ? null : _handleSave,
+                            child: _isSaving
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.4,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Text('Simpan perubahan'),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -959,10 +1178,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         children: [
           Text(
             'Data akun',
-            style: TextStyle(
-              color: onSurface,
-              fontWeight: FontWeight.w800,
-            ),
+            style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
           Text(
@@ -975,10 +1191,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
           const SizedBox(height: 6),
           Text(
             widget.initialUser.memberCode,
-            style: TextStyle(
-              color: onSurface,
-              fontWeight: FontWeight.w800,
-            ),
+            style: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
           ),
         ],
       ),
@@ -993,12 +1206,12 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     final initials = _nameController.text.trim().isEmpty
         ? 'GM'
         : _nameController.text
-            .trim()
-            .split(RegExp(r'\s+'))
-            .where((part) => part.isNotEmpty)
-            .take(2)
-            .map((part) => part.substring(0, 1).toUpperCase())
-            .join();
+              .trim()
+              .split(RegExp(r'\s+'))
+              .where((part) => part.isNotEmpty)
+              .take(2)
+              .map((part) => part.substring(0, 1).toUpperCase())
+              .join();
     final profileImageUrl = widget.initialUser.imageUrl.trim();
 
     return Container(
@@ -1007,9 +1220,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: onSurfaceVariant.withValues(alpha: 0.14),
-        ),
+        border: Border.all(color: onSurfaceVariant.withValues(alpha: 0.14)),
       ),
       child: Row(
         children: [
@@ -1024,26 +1235,22 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
               ),
             ),
             child: ClipOval(
-              child: _selectedProfileBytes != null
-                  ? Image.memory(
-                      _selectedProfileBytes!,
-                      fit: BoxFit.cover,
-                    )
-                  : profileImageUrl.isNotEmpty
-                      ? _buildProfileImage(
-                          imageUrl: profileImageUrl,
-                          fallback: Center(
-                            child: Text(
-                              initials.isEmpty ? 'GM' : initials,
-                              style: TextStyle(
-                                color: AppTheme.primary,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                        )
-                      : Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeOut,
+                child: _selectedProfileBytes != null
+                    ? Image.memory(
+                        _selectedProfileBytes!,
+                        key: ValueKey('picked-$_selectedProfilePreviewVersion'),
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                      )
+                    : profileImageUrl.isNotEmpty
+                    ? _buildProfileImage(
+                        imageUrl: profileImageUrl,
+                        widgetKey: ValueKey('initial-$profileImageUrl'),
+                        fallback: Center(
                           child: Text(
                             initials.isEmpty ? 'GM' : initials,
                             style: TextStyle(
@@ -1053,6 +1260,19 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                             ),
                           ),
                         ),
+                      )
+                    : Center(
+                        key: const ValueKey('fallback-initials'),
+                        child: Text(
+                          initials.isEmpty ? 'GM' : initials,
+                          style: TextStyle(
+                            color: AppTheme.primary,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -1079,7 +1299,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 3),
                 OutlinedButton.icon(
                   onPressed: _pickProfileImage,
                   icon: const Icon(Icons.photo_library_outlined),
@@ -1110,10 +1330,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         }
         return null;
       },
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-      ),
+      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
     );
   }
 }
@@ -1155,11 +1372,7 @@ class _MenuRowTile extends StatelessWidget {
                     : const Color(0xFFFFF2E8),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                icon,
-                color: scheme.primary,
-                size: 20,
-              ),
+              child: Icon(icon, color: scheme.primary, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(

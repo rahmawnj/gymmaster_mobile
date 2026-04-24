@@ -1,7 +1,11 @@
+import 'dart:ui';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 
 import '../models/user.dart';
-import '../theme/app_theme.dart';
+import '../services/screen_security_service.dart';
 import 'member_packages_screen.dart';
 import 'member_home_dashboard_screen.dart';
 import 'profile_settings_screen.dart';
@@ -18,10 +22,20 @@ class MainShellScreen extends StatefulWidget {
 
 class _MainShellScreenState extends State<MainShellScreen>
     with TickerProviderStateMixin {
+  static const int _qrTabIndex = 2;
+
+  final _screenSecurityService = const ScreenSecurityService();
+  final _screenBrightness = ScreenBrightness();
+
   late User _currentUser;
   late List<Widget> _pages;
   int _selectedIndex = 0;
   bool _isNavVisible = true;
+  bool _isQrScreenProtected = false;
+  bool _isQrBrightnessBoosted = false;
+  double? _brightnessBeforeQr;
+  bool? _hadApplicationBrightnessBeforeQr;
+  int _brightnessRequestId = 0;
   DateTime? _lastNavToggleAt;
   late final PageController _pageController;
 
@@ -38,7 +52,8 @@ class _MainShellScreenState extends State<MainShellScreen>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentUser.memberCode != widget.currentUser.memberCode ||
         oldWidget.currentUser.name != widget.currentUser.name ||
-        oldWidget.currentUser.phone != widget.currentUser.phone) {
+        oldWidget.currentUser.phone != widget.currentUser.phone ||
+        oldWidget.currentUser.imageUrl != widget.currentUser.imageUrl) {
       _currentUser = widget.currentUser;
       _pages = _buildPages();
     }
@@ -46,8 +61,68 @@ class _MainShellScreenState extends State<MainShellScreen>
 
   @override
   void dispose() {
+    _setQrScreenProtection(false);
+    _setQrBrightnessBoost(false);
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _setQrScreenProtection(bool enabled) {
+    if (_isQrScreenProtected == enabled) {
+      return;
+    }
+
+    _isQrScreenProtected = enabled;
+    unawaited(_screenSecurityService.setScreenProtection(enabled));
+  }
+
+  void _syncScreenProtectionForTab(int index) {
+    _setQrScreenProtection(index == _qrTabIndex);
+    _setQrBrightnessBoost(index == _qrTabIndex);
+  }
+
+  void _setQrBrightnessBoost(bool enabled) {
+    if (_isQrBrightnessBoosted == enabled) {
+      return;
+    }
+
+    _isQrBrightnessBoosted = enabled;
+    final requestId = ++_brightnessRequestId;
+    unawaited(_applyQrBrightnessBoost(enabled, requestId));
+  }
+
+  Future<void> _applyQrBrightnessBoost(bool enabled, int requestId) async {
+    try {
+      if (enabled) {
+        _brightnessBeforeQr ??= await _screenBrightness.application;
+        _hadApplicationBrightnessBeforeQr ??=
+            await _screenBrightness.hasApplicationScreenBrightnessChanged;
+        if (requestId != _brightnessRequestId || !_isQrBrightnessBoosted) {
+          return;
+        }
+
+        await _screenBrightness.setApplicationScreenBrightness(1.0);
+        return;
+      }
+
+      final previousBrightness = _brightnessBeforeQr;
+      final hadApplicationBrightness = _hadApplicationBrightnessBeforeQr;
+      _brightnessBeforeQr = null;
+      _hadApplicationBrightnessBeforeQr = null;
+      if (requestId != _brightnessRequestId || _isQrBrightnessBoosted) {
+        return;
+      }
+
+      if (hadApplicationBrightness == true && previousBrightness != null) {
+        await _screenBrightness.setApplicationScreenBrightness(
+          previousBrightness.clamp(0.0, 1.0).toDouble(),
+        );
+      } else {
+        await _screenBrightness.resetApplicationScreenBrightness();
+      }
+    } catch (_) {
+      // Brightness control can be unavailable on some platforms/devices.
+    }
   }
 
   void _handleTabChange(int index) {
@@ -59,6 +134,7 @@ class _MainShellScreenState extends State<MainShellScreen>
       _selectedIndex = index;
       _isNavVisible = true;
     });
+    _syncScreenProtectionForTab(index);
     _pageController.animateToPage(
       index,
       duration: const Duration(milliseconds: 260),
@@ -153,6 +229,7 @@ class _MainShellScreenState extends State<MainShellScreen>
                   _selectedIndex = index;
                   _isNavVisible = true;
                 });
+                _syncScreenProtectionForTab(index);
               },
               children: _pages,
             ),
@@ -171,7 +248,10 @@ class _MainShellScreenState extends State<MainShellScreen>
   Widget _buildFloatingNavigationBar(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
     final scheme = theme.colorScheme;
-    final navColor = isDark ? const Color(0xFF181818) : const Color(0xFFFBFBFC);
+    final navColor = isDark ? const Color(0xCC0B0B0D) : const Color(0xBAFFFFFF);
+    final navBorderColor = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.white.withValues(alpha: 0.20);
 
     return SafeArea(
       top: false,
@@ -205,7 +285,7 @@ class _MainShellScreenState extends State<MainShellScreen>
                     ),
                   ] else
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 18,
                       spreadRadius: -3,
                       offset: const Offset(0, 10),
@@ -214,56 +294,63 @@ class _MainShellScreenState extends State<MainShellScreen>
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(26),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: navColor,
-                    border: Border.all(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : Colors.black.withValues(alpha: 0.04),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: navColor,
+                      border: Border.all(color: navBorderColor),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          navColor.withValues(alpha: isDark ? 0.9 : 0.72),
+                          navColor.withValues(alpha: isDark ? 0.82 : 0.60),
+                        ],
+                      ),
                     ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _NavItem(
-                            icon: Icons.home_outlined,
-                            label: 'Beranda',
-                            isActive: _selectedIndex == 0,
-                            activeColor: scheme.primary,
-                            onTap: () => _handleTabChange(0),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _NavItem(
+                              icon: Icons.home_outlined,
+                              label: 'Beranda',
+                              isActive: _selectedIndex == 0,
+                              activeColor: scheme.primary,
+                              onTap: () => _handleTabChange(0),
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: _NavItem(
-                            icon: Icons.layers_outlined,
-                            label: 'Paket',
-                            isActive: _selectedIndex == 1,
-                            activeColor: scheme.primary,
-                            onTap: () => _handleTabChange(1),
+                          Expanded(
+                            child: _NavItem(
+                              icon: Icons.layers_outlined,
+                              label: 'Paket',
+                              isActive: _selectedIndex == 1,
+                              activeColor: scheme.primary,
+                              onTap: () => _handleTabChange(1),
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: _NavItem(
-                            icon: Icons.qr_code_scanner_rounded,
-                            label: 'Scan QR',
-                            isActive: _selectedIndex == 2,
-                            activeColor: scheme.primary,
-                            onTap: () => _handleTabChange(2),
+                          Expanded(
+                            child: _NavItem(
+                              icon: Icons.qr_code_scanner_rounded,
+                              label: 'Scan QR',
+                              isActive: _selectedIndex == 2,
+                              activeColor: scheme.primary,
+                              onTap: () => _handleTabChange(2),
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: _NavItem(
-                            icon: Icons.person_outline_rounded,
-                            label: 'Profil',
-                            isActive: _selectedIndex == 3,
-                            activeColor: scheme.primary,
-                            onTap: () => _handleTabChange(3),
+                          Expanded(
+                            child: _NavItem(
+                              icon: Icons.person_outline_rounded,
+                              label: 'Profil',
+                              isActive: _selectedIndex == 3,
+                              activeColor: scheme.primary,
+                              onTap: () => _handleTabChange(3),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -294,37 +381,66 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final inactiveColor = isDark
         ? const Color(0xFF9E9E9E)
         : const Color(0xFF7C8798);
+    final activeBackground = activeColor.withValues(
+      alpha: isDark ? 0.18 : 0.08,
+    );
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
+      child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-        decoration: BoxDecoration(
-          color: isActive
-              ? activeColor.withValues(alpha: isDark ? 0.18 : 0.12)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            Icon(icon, color: isActive ? activeColor : inactiveColor, size: 22),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isActive ? activeColor : inactiveColor,
-                fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
-                fontSize: 12,
-                letterSpacing: 0.1,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 180),
+                  curve: isActive ? Curves.easeOutCubic : Curves.easeInCubic,
+                  opacity: isActive ? 1 : 0,
+                  child: AnimatedScale(
+                    duration: const Duration(milliseconds: 280),
+                    curve: isActive
+                        ? Curves.easeOutBack
+                        : Curves.easeInOutCubic,
+                    scale: isActive ? 1 : 0.72,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: activeBackground,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    color: isActive ? activeColor : inactiveColor,
+                    size: 22,
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isActive ? activeColor : inactiveColor,
+                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
+                      fontSize: 12,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

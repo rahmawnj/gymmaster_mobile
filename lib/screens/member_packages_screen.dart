@@ -277,9 +277,9 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       if (!mounted) return;
 
       final matchedBranch = branches.cast<MemberBranch?>().firstWhere(
-            (branch) => branch != null && branch.id.trim() == branchId,
-            orElse: () => null,
-          );
+        (branch) => branch != null && branch.id.trim() == branchId,
+        orElse: () => null,
+      );
 
       if (matchedBranch == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -368,10 +368,7 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
   }
 
   String _normalizeLookup(String value) {
-    return value
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), ' ');
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
   }
 
   Future<void> _openActiveMembershipDetail(MemberMembership membership) async {
@@ -395,16 +392,14 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
 
       final normalizedBranchName = _normalizeLookup(membership.branchName);
       final matchedBranch = branches.cast<MemberBranch?>().firstWhere(
-            (branch) =>
-                branch != null &&
-                _normalizeLookup(branch.name) == normalizedBranchName,
-            orElse: () => null,
-          );
+        (branch) =>
+            branch != null &&
+            _normalizeLookup(branch.name) == normalizedBranchName,
+        orElse: () => null,
+      );
 
       if (matchedBranch == null) {
-        throw const MembershipException(
-          'Cabang paket aktif tidak ditemukan.',
-        );
+        throw const MembershipException('Cabang paket aktif tidak ditemukan.');
       }
 
       final options = await _membershipService.fetchMembershipOptions(
@@ -413,52 +408,46 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
         tokenType: session.tokenType,
       );
 
-      final normalizedMembershipName =
-          _normalizeLookup(membership.membershipName);
-      final matchedOption = options.cast<MemberMembershipOption?>().firstWhere(
-            (option) {
-              if (option == null) return false;
-              final optionName = _normalizeLookup(option.name);
-              return optionName == normalizedMembershipName ||
-                  optionName.contains(normalizedMembershipName) ||
-                  normalizedMembershipName.contains(optionName);
-            },
-            orElse: () => null,
-          );
+      final normalizedMembershipName = _normalizeLookup(
+        membership.membershipName,
+      );
+      final matchedOption = options.cast<MemberMembershipOption?>().firstWhere((
+        option,
+      ) {
+        if (option == null) return false;
+        final optionName = _normalizeLookup(option.name);
+        return optionName == normalizedMembershipName ||
+            optionName.contains(normalizedMembershipName) ||
+            normalizedMembershipName.contains(optionName);
+      }, orElse: () => null);
 
       final detailId = matchedOption?.id.trim().isNotEmpty == true
           ? matchedOption!.id
           : membership.id.trim();
 
       if (detailId.isEmpty) {
-        throw const MembershipException(
-          'Detail paket aktif belum tersedia.',
-        );
+        throw const MembershipException('Detail paket aktif belum tersedia.');
       }
 
       if (!mounted) return;
       Navigator.of(context).push(
         MaterialPageRoute(
-        builder: (_) => _MembershipOptionDetailScreen(
-          membershipId: detailId,
-          title: membership.membershipName,
-          subtitle: membership.branchName,
-          memberId: widget.currentUser.memberId,
-          showPurchaseButton: false,
+          builder: (_) => _MembershipOptionDetailScreen(
+            membershipId: detailId,
+            title: membership.membershipName,
+            subtitle: membership.branchName,
+            memberId: widget.currentUser.memberId,
+            showPurchaseButton: false,
+          ),
         ),
-      ),
       );
     } on MembershipException catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
     } catch (_) {
       if (!mounted) return;
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Gagal membuka detail paket aktif.'),
-        ),
+        const SnackBar(content: Text('Gagal membuka detail paket aktif.')),
       );
     }
   }
@@ -467,16 +456,19 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final backgroundColor =
-        isDark ? const Color(0xFF0F1012) : const Color(0xFFF6F7FB);
+    final backgroundColor = isDark
+        ? const Color(0xFF0F1012)
+        : const Color(0xFFF6F7FB);
     final surfaceColor = isDark ? const Color(0xFF18191C) : Colors.white;
-    final surfaceSoft =
-        isDark ? const Color(0xFF22242A) : const Color(0xFFF4F6FB);
+    final surfaceSoft = isDark
+        ? const Color(0xFF22242A)
+        : const Color(0xFFF4F6FB);
     final inkColor = isDark ? const Color(0xFFF1F3F6) : AppTheme.ink;
     final inkSoft = isDark ? const Color(0xFFB5BCC8) : AppTheme.inkSoft;
     final muted = isDark ? const Color(0xFF9AA3B2) : AppTheme.muted;
-    final borderColor =
-        isDark ? const Color(0xFF2A2D33) : const Color(0xFFE8E8E8);
+    final borderColor = isDark
+        ? const Color(0xFF2A2D33)
+        : const Color(0xFFE8E8E8);
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -580,13 +572,13 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
                       ],
                     ),
                   ),
-	                ),
-	              ),
-	            ),
-	        ],
-	      ),
-	    );
-	  }
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildSegmentedTabs({
     required Color surfaceColor,
@@ -595,37 +587,62 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
+        height: 54,
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
           color: surfaceColor,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: _buildTabButton(
-                label: 'Paket Aktif',
-                isActive: _tabIndex == 0,
-                inactiveColor: inkSoft,
-                onTap: () {
-                  setState(() => _tabIndex = 0);
-                  _resetAutoSlide();
-                },
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildTabButton(
-                label: 'Beli Paket',
-                isActive: _tabIndex == 1,
-                inactiveColor: inkSoft,
-                onTap: () {
-                  setState(() => _tabIndex = 1);
-                  _autoSlideTimer?.cancel();
-                },
-              ),
-            ),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final halfWidth = (constraints.maxWidth - 6) / 2;
+            return Stack(
+              children: [
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOutCubic,
+                  left: _tabIndex == 0 ? 0 : halfWidth + 6,
+                  top: 0,
+                  bottom: 0,
+                  width: halfWidth,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _buildTabButton(
+                        label: 'Paket Aktif',
+                        isActive: _tabIndex == 0,
+                        inactiveColor: inkSoft,
+                        onTap: () {
+                          setState(() => _tabIndex = 0);
+                          _resetAutoSlide();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _buildTabButton(
+                        label: 'Beli Paket',
+                        isActive: _tabIndex == 1,
+                        inactiveColor: inkSoft,
+                        onTap: () {
+                          setState(() => _tabIndex = 1);
+                          _autoSlideTimer?.cancel();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -641,18 +658,17 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: isActive ? AppTheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-        ),
         alignment: Alignment.center,
-        child: Text(
-          label,
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
           style: TextStyle(
             color: isActive ? Colors.white : inactiveColor,
             fontWeight: FontWeight.w800,
+            fontSize: 14,
+            fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
           ),
+          child: Text(label),
         ),
       ),
     );
@@ -873,114 +889,114 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Icon(
-                              isActive
-                                  ? Icons.verified_rounded
-                                  : Icons.info_outline_rounded,
-                              color: isActive ? AppTheme.primary : mutedText,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                membership.branchName.isEmpty
-                                    ? '-'
-                                    : membership.branchName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: mutedText,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(
+                            isActive
+                                ? Icons.verified_rounded
+                                : Icons.info_outline_rounded,
+                            color: isActive ? AppTheme.primary : mutedText,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              membership.branchName.isEmpty
+                                  ? '-'
+                                  : membership.branchName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: mutedText,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
                               ),
                             ),
-                          ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (isActive)
+                      Container(
+                        margin: const EdgeInsets.only(left: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.success.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          'ACTIVE',
+                          style: TextStyle(
+                            color: AppTheme.success,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                            letterSpacing: 0.4,
+                          ),
                         ),
                       ),
-                      if (isActive)
-                        Container(
-                          margin: const EdgeInsets.only(left: 12),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.success.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Text(
-                            'ACTIVE',
-                            style: TextStyle(
-                              color: AppTheme.success,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 11,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  membership.membershipName.isEmpty
+                      ? '-'
+                      : membership.membershipName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    height: 1.25,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: datePanelColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.04)
+                          : Colors.transparent,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _MembershipDateItem(
+                          label: 'BERLAKU MULAI',
+                          value: _formatMembershipDate(membership.startDate),
+                          textColor: textColor,
+                          mutedText: mutedText,
                         ),
+                      ),
+                      Container(
+                        width: 1,
+                        height: 28,
+                        color: textColor.withValues(alpha: 0.1),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _MembershipDateItem(
+                          label: 'BERAKHIR PADA',
+                          value: _formatMembershipDate(membership.expDate),
+                          textColor: textColor,
+                          mutedText: mutedText,
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    membership.membershipName.isEmpty
-                        ? '-'
-                        : membership.membershipName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      height: 1.25,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: datePanelColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.04)
-                            : borderColor,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _MembershipDateItem(
-                            label: 'BERLAKU MULAI',
-                            value: _formatMembershipDate(membership.startDate),
-                            textColor: textColor,
-                            mutedText: mutedText,
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 28,
-                          color: textColor.withValues(alpha: 0.1),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _MembershipDateItem(
-                            label: 'BERAKHIR PADA',
-                            value: _formatMembershipDate(membership.expDate),
-                            textColor: textColor,
-                            mutedText: mutedText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                ),
               ],
             ),
           ),
@@ -1075,45 +1091,57 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       ),
       child: Column(
         children: [
-          TextField(
-            controller: _searchController,
-            style: TextStyle(color: inkColor),
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'Search cabang',
-              hintStyle: TextStyle(color: muted),
-              prefixIcon: Icon(Icons.search_rounded, color: muted),
-              filled: true,
-              fillColor: surfaceSoft,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(
-                  color: AppTheme.primary,
-                  width: 1.2,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  style: TextStyle(color: inkColor),
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    hintText: 'Search cabang',
+                    hintStyle: TextStyle(color: muted),
+                    prefixIcon: Icon(Icons.search_rounded, color: muted),
+                    filled: true,
+                    fillColor: surfaceSoft,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(
+                        color: AppTheme.primary,
+                        width: 1.2,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _openScanner,
-              icon: const Icon(Icons.qr_code_scanner_rounded),
-              label: const Text('Mulai scan QR'),
-            ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 50,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _openScanner,
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Icon(Icons.qr_code_scanner_rounded, size: 22),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Row(
@@ -1152,7 +1180,9 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
                         Text(
                           _locationEnabled ? 'Lokasi On' : 'Lokasi Off',
                           style: TextStyle(
-                            color: _locationEnabled ? AppTheme.primary : inkColor,
+                            color: _locationEnabled
+                                ? AppTheme.primary
+                                : inkColor,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
@@ -1194,10 +1224,7 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
           ),
           if (buttonLabel != null && onPressed != null) ...[
             const SizedBox(height: 14),
-            OutlinedButton(
-              onPressed: onPressed,
-              child: Text(buttonLabel),
-            ),
+            OutlinedButton(onPressed: onPressed, child: Text(buttonLabel)),
           ],
         ],
       ),
@@ -1565,10 +1592,7 @@ class _BranchMembershipOptionsScreenState
     }
 
     String normalize(String value) {
-      return value
-          .trim()
-          .toLowerCase()
-          .replaceAll(RegExp(r'\s+'), ' ');
+      return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
     }
 
     final optionName = normalize(option.name);
@@ -1584,16 +1608,19 @@ class _BranchMembershipOptionsScreenState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final backgroundColor =
-        isDark ? const Color(0xFF0F1012) : const Color(0xFFF6F7FB);
+    final backgroundColor = isDark
+        ? const Color(0xFF0F1012)
+        : const Color(0xFFF6F7FB);
     final surfaceColor = isDark ? const Color(0xFF18191C) : Colors.white;
-    final surfaceSoft =
-        isDark ? const Color(0xFF22242A) : const Color(0xFFF4F6FB);
+    final surfaceSoft = isDark
+        ? const Color(0xFF22242A)
+        : const Color(0xFFF4F6FB);
     final inkColor = isDark ? const Color(0xFFF1F3F6) : AppTheme.ink;
     final inkSoft = isDark ? const Color(0xFFB5BCC8) : AppTheme.inkSoft;
     final muted = isDark ? const Color(0xFF9AA3B2) : AppTheme.muted;
-    final borderColor =
-        isDark ? const Color(0xFF2A2D33) : const Color(0xFFE8E8E8);
+    final borderColor = isDark
+        ? const Color(0xFF2A2D33)
+        : const Color(0xFFE8E8E8);
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -1602,10 +1629,7 @@ class _BranchMembershipOptionsScreenState
         titleSpacing: 0,
         title: Text(
           widget.branch.name,
-          style: TextStyle(
-            color: inkColor,
-            fontWeight: FontWeight.w800,
-          ),
+          style: TextStyle(color: inkColor, fontWeight: FontWeight.w800),
         ),
       ),
       body: RefreshIndicator(
@@ -1716,10 +1740,7 @@ class _BranchMembershipOptionsScreenState
                 ),
                 child: Text(
                   'Belum ada paket tersedia di cabang ini.',
-                  style: TextStyle(
-                    color: muted,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(color: muted, fontWeight: FontWeight.w600),
                 ),
               )
             else
@@ -1757,7 +1778,6 @@ class _MembershipOptionCard extends StatelessWidget {
   final Color inkSoft;
   final Color muted;
   final Color borderColor;
-  final bool showActionButton;
   final VoidCallback? onSelect;
 
   const _MembershipOptionCard({
@@ -1770,7 +1790,6 @@ class _MembershipOptionCard extends StatelessWidget {
     required this.inkSoft,
     required this.muted,
     required this.borderColor,
-    this.showActionButton = true,
     this.onSelect,
   });
 
@@ -1788,16 +1807,16 @@ class _MembershipOptionCard extends StatelessWidget {
                 : const [Color(0xFFFFF7F8), Color(0xFFFFFCFC)],
           )
         : (isDark
-            ? const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF23252B), Color(0xFF1A1C21)],
-              )
-            : const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFFFFFFF), Color(0xFFF5F7FB)],
-              ));
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF23252B), Color(0xFF1A1C21)],
+                )
+              : const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFFFFFFF), Color(0xFFF5F7FB)],
+                ));
     final actionBackground = isDark
         ? AppTheme.primary.withValues(alpha: 0.14)
         : const Color(0xFFFFECEC);
@@ -1828,7 +1847,10 @@ class _MembershipOptionCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: badgeBackground,
                   borderRadius: BorderRadius.circular(999),
@@ -1928,7 +1950,7 @@ class _MembershipOptionCard extends StatelessWidget {
               ),
             ),
           ],
-          if (showActionButton && option.isActive) ...[
+          if (option.isActive) ...[
             const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
@@ -2165,10 +2187,7 @@ class _OptionFeatureRow extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(color: color, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -2262,6 +2281,232 @@ class _MembershipOptionDetailScreenState
     return '${now.year}-$month-$day';
   }
 
+  String _purchaseStatusLabel(String rawStatus) {
+    final normalized = rawStatus.trim();
+    return normalized.isEmpty ? 'UNPAID' : normalized.toUpperCase();
+  }
+
+  String _purchaseFailureTitle(String message) {
+    final normalized = message.toLowerCase();
+    if (normalized.contains('already have active membership')) {
+      return 'Membership Sudah Aktif';
+    }
+    if (normalized.contains('already have unpaid membership')) {
+      return 'Pembayaran Masih Tertunda';
+    }
+    return 'Pembelian Gagal';
+  }
+
+  Future<void> _showPurchaseFailureDialog(String message) async {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final inkColor = isDark ? Colors.white : const Color(0xFF101114);
+    final muted = isDark
+        ? Colors.white.withValues(alpha: 0.68)
+        : const Color(0xFF5F6672);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF191B20) : Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 24,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.primary.withValues(alpha: 0.14),
+                  ),
+                  child: const Icon(
+                    Icons.info_outline_rounded,
+                    color: AppTheme.primary,
+                    size: 36,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _purchaseFailureTitle(message),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: inkColor,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: muted,
+                    fontWeight: FontWeight.w600,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('OK'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showPurchaseSuccessDialog(
+    MembershipPurchaseResult result,
+  ) async {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final inkColor = isDark ? Colors.white : const Color(0xFF101114);
+    final muted = isDark
+        ? Colors.white.withValues(alpha: 0.68)
+        : const Color(0xFF5F6672);
+    final surfaceSoft = isDark
+        ? Colors.white.withValues(alpha: 0.05)
+        : const Color(0xFFF4F5F8);
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : const Color(0xFFE6E8EE);
+    final statusLabel = _purchaseStatusLabel(result.status);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF191B20) : Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 24,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppTheme.primary.withValues(alpha: 0.14),
+                    ),
+                    child: const Icon(
+                      Icons.receipt_long_rounded,
+                      color: AppTheme.primary,
+                      size: 38,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Pembelian Berhasil',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: inkColor,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  result.message,
+                  style: TextStyle(
+                    color: muted,
+                    fontWeight: FontWeight.w600,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: surfaceSoft,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Column(
+                    children: [
+                      if (result.transactionId > 0)
+                        _PurchaseInfoRow(
+                          label: 'ID Transaksi',
+                          value: '#${result.transactionId}',
+                          inkColor: inkColor,
+                          muted: muted,
+                        ),
+                      if (result.transactionCode.trim().isNotEmpty)
+                        _PurchaseInfoRow(
+                          label: 'Kode Transaksi',
+                          value: result.transactionCode,
+                          inkColor: inkColor,
+                          muted: muted,
+                        ),
+                      _PurchaseInfoRow(
+                        label: 'Status',
+                        value: statusLabel,
+                        inkColor: inkColor,
+                        muted: muted,
+                      ),
+                      _PurchaseInfoRow(
+                        label: 'Total Bayar',
+                        value: _formatCurrency(result.totalPrice),
+                        inkColor: inkColor,
+                        muted: muted,
+                        isLast: true,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('OK'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _purchaseMembership() async {
     final detail = _detail;
     final memberId = int.tryParse(widget.memberId);
@@ -2328,37 +2573,17 @@ class _MembershipOptionDetailScreenState
         _hasPendingPurchase = true;
         _pendingPurchaseMessage = result.transactionCode.trim().isNotEmpty
             ? 'Transaksi ${result.transactionCode} berhasil dibuat dengan status '
-                '${result.status.trim().isEmpty ? 'UNPAID' : result.status.trim()}. '
-                'Silakan lanjutkan pembayaran.'
+                  '${_purchaseStatusLabel(result.status)}. '
+                  'Silakan lanjutkan pembayaran.'
             : result.message;
       });
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('Menunggu Konfirmasi'),
-            content: Text(
-              result.transactionCode.trim().isNotEmpty
-                  ? '${result.message}\n\n'
-                      'Kode transaksi: ${result.transactionCode}\n'
-                      'Status: ${result.status.trim().isEmpty ? 'UNPAID' : result.status}\n'
-                      'Total: ${_formatCurrency(result.totalPrice)}'
-                  : result.message,
-            ),
-            actions: [
-              ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Oke'),
-              ),
-            ],
-          );
-        },
-      );
+      await _showPurchaseSuccessDialog(result);
     } on MembershipException catch (error) {
       if (!mounted) return;
       final normalizedMessage = error.message.toLowerCase();
-      final alreadyPending =
-          normalizedMessage.contains('already have unpaid membership');
+      final alreadyPending = normalizedMessage.contains(
+        'already have unpaid membership',
+      );
       if (alreadyPending) {
         setState(() {
           _hasPendingPurchase = true;
@@ -2366,29 +2591,11 @@ class _MembershipOptionDetailScreenState
               'Kamu masih punya membership dengan pembayaran tertunda di cabang ini. Selesaikan dulu pembayaran sebelumnya.';
         });
       }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: Text(
-              alreadyPending ? 'Pembayaran Masih Tertunda' : 'Pembelian Gagal',
-            ),
-            content: Text(error.message),
-            actions: [
-              ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Oke'),
-              ),
-            ],
-          );
-        },
-      );
+      await _showPurchaseFailureDialog(error.message);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gagal memproses pembelian membership.'),
-        ),
+      await _showPurchaseFailureDialog(
+        'Gagal memproses pembelian membership.',
       );
     } finally {
       if (mounted) {
@@ -2418,16 +2625,16 @@ class _MembershipOptionDetailScreenState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final backgroundColor =
-        isDark ? const Color(0xFF0F1012) : const Color(0xFFF6F7FB);
+    final backgroundColor = isDark
+        ? const Color(0xFF0F1012)
+        : const Color(0xFFF6F7FB);
     final surfaceColor = isDark ? const Color(0xFF18191C) : Colors.white;
-    final surfaceSoft =
-        isDark ? const Color(0xFF22242A) : const Color(0xFFF4F6FB);
+    final surfaceSoft = isDark
+        ? const Color(0xFF22242A)
+        : const Color(0xFFF4F6FB);
     final inkColor = isDark ? const Color(0xFFF1F3F6) : AppTheme.ink;
     final inkSoft = isDark ? const Color(0xFFB5BCC8) : AppTheme.inkSoft;
     final muted = isDark ? const Color(0xFF9AA3B2) : AppTheme.muted;
-    final borderColor =
-        isDark ? const Color(0xFF2A2D33) : const Color(0xFFE8E8E8);
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -2438,10 +2645,7 @@ class _MembershipOptionDetailScreenState
           widget.subtitle.trim().isEmpty ? 'Detail Paket' : widget.subtitle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: inkColor,
-            fontWeight: FontWeight.w800,
-          ),
+          style: TextStyle(color: inkColor, fontWeight: FontWeight.w800),
         ),
       ),
       body: RefreshIndicator(
@@ -2565,10 +2769,7 @@ class _MembershipOwnedDetailSection extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                accentSoft,
-                AppTheme.primary.withValues(alpha: 0.04),
-              ],
+              colors: [accentSoft, AppTheme.primary.withValues(alpha: 0.04)],
             ),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: accentBorder),
@@ -2667,14 +2868,13 @@ class _MembershipOwnedDetailSection extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed:
-                  isPurchasing || hasPendingPurchase ? null : onPurchase,
+              onPressed: isPurchasing || hasPendingPurchase ? null : onPurchase,
               child: Text(
                 isPurchasing
                     ? 'Memproses...'
                     : hasPendingPurchase
-                        ? 'Menunggu Konfirmasi'
-                        : 'Beli Paket',
+                    ? 'Menunggu Konfirmasi'
+                    : 'Beli Paket',
               ),
             ),
           ),
@@ -2791,6 +2991,55 @@ class _OwnedInfoChip extends StatelessWidget {
   }
 }
 
+class _PurchaseInfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color inkColor;
+  final Color muted;
+  final bool isLast;
+
+  const _PurchaseInfoRow({
+    required this.label,
+    required this.value,
+    required this.inkColor,
+    required this.muted,
+    this.isLast = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: inkColor,
+                fontWeight: FontWeight.w800,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AnimatedBranchArrowButton extends StatefulWidget {
   final VoidCallback onPressed;
 
@@ -2801,7 +3050,8 @@ class _AnimatedBranchArrowButton extends StatefulWidget {
       _AnimatedBranchArrowButtonState();
 }
 
-class _AnimatedBranchArrowButtonState extends State<_AnimatedBranchArrowButton> {
+class _AnimatedBranchArrowButtonState
+    extends State<_AnimatedBranchArrowButton> {
   bool _isHovered = false;
   bool _isPressed = false;
 
@@ -2851,10 +3101,7 @@ class _AnimatedBranchArrowButtonState extends State<_AnimatedBranchArrowButton> 
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOutCubic,
               turns: isActive ? -0.08 : 0,
-              child: const Icon(
-                Icons.arrow_forward_rounded,
-                size: 20,
-              ),
+              child: const Icon(Icons.arrow_forward_rounded, size: 20),
             ),
           ),
         ),

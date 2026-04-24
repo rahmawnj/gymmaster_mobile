@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show PointMode;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -11,7 +12,6 @@ import 'package:screen_brightness/screen_brightness.dart';
 import '../models/face_enrollment_result.dart';
 import '../services/camera_permission_service.dart';
 import '../services/face_quality_service.dart';
-import '../services/liveness_step_controller.dart';
 import '../theme/app_theme.dart';
 
 class FaceEnrollmentScreen extends StatefulWidget {
@@ -24,9 +24,10 @@ class FaceEnrollmentScreen extends StatefulWidget {
 class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static const int _captureCountdownStart = 3;
+  static const int _readinessStepCount = 5;
   static const double _cameraGuideWidth = 270;
   static const double _cameraGuideHeight = 340;
-  static const int _requiredStableFrames = 4;
+  static const int _requiredStableFrames = 3;
   final _permissionService = const CameraPermissionService();
   final _qualityService = const FaceQualityService();
   final _screenBrightness = ScreenBrightness();
@@ -34,6 +35,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     options: FaceDetectorOptions(
       performanceMode: FaceDetectorMode.fast,
       enableClassification: true,
+      enableContours: true,
       enableLandmarks: true,
       minFaceSize: 0.08,
     ),
@@ -41,8 +43,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
   CameraController? _cameraController;
   FaceFrameGeometry _geometry = FaceFrameGeometry.empty();
-  final LivenessStepController _livenessController = LivenessStepController();
-  late LivenessProgress _progress;
   FaceEnrollmentResult? _result;
 
   bool _isInitializing = true;
@@ -61,7 +61,11 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   Offset? _lastStableFaceCenter;
   double? _lastStableFaceWidthRatio;
   double? _lastStableFaceHeightRatio;
+  Size? _latestFrameImageSize;
+  InputImageRotation? _latestFrameRotation;
+  double? _previewBlurScore;
   int _stableFrameCount = 0;
+  bool _hasBlinked = false;
 
   @override
   void initState() {
@@ -71,7 +75,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       vsync: this,
       duration: const Duration(seconds: _captureCountdownStart),
     );
-    _progress = _livenessController.initialProgress;
     unawaited(_initializeCameraFlow());
   }
 
@@ -80,7 +83,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     WidgetsBinding.instance.removeObserver(this);
     _cancelCountdown(shouldRebuild: false);
     unawaited(_restoreBrightness());
-    unawaited(_stopCamera());
+    unawaited(_stopCamera(detachPreview: false));
     _faceDetector.close();
     _countdownRingController.dispose();
     super.dispose();
@@ -194,8 +197,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       }
 
       _cameraController = controller;
-      _livenessController.reset();
-      _progress = _livenessController.initialProgress;
       _geometry = FaceFrameGeometry.empty();
       _resetStabilityState();
       _result = null;
@@ -205,6 +206,8 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       if (!mounted) {
         return;
       }
+
+      unawaited(_boostBrightness());
 
       setState(() {
         _isInitializing = false;
@@ -274,15 +277,12 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       final geometry = _qualityService.inspectFrame(
         faces: faces,
         imageSize: Size(image.width.toDouble(), image.height.toDouble()),
+        imageRotation: _latestFrameRotation ?? InputImageRotation.rotation0deg,
         screenSize: screenSize,
         guideSize: const Size(_cameraGuideWidth, _cameraGuideHeight),
       );
-
-      final progress = _livenessController.evaluate(
-        geometry: geometry,
-        face: faces.isNotEmpty ? geometry.primaryFace : null,
-      );
       _updateStabilityState(geometry);
+      final previewBlurScore = _estimatePreviewBlurScore(image, geometry);
 
       if (!mounted) {
         return;
@@ -290,12 +290,16 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
       setState(() {
         _geometry = geometry;
-        _progress = progress;
+        _latestFrameImageSize = Size(
+          image.width.toDouble(),
+          image.height.toDouble(),
+        );
+        _previewBlurScore = previewBlurScore;
         _errorMessage = null;
       });
 
-      unawaited(_syncBrightnessForGeometry(geometry));
-      _handleAutoCaptureState(geometry, progress);
+      unawaited(_boostBrightness());
+      _handleAutoCaptureState(geometry);
     } finally {
       _isProcessingFrame = false;
     }
@@ -346,80 +350,129 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     _lastStableFaceCenter = null;
     _lastStableFaceWidthRatio = null;
     _lastStableFaceHeightRatio = null;
+    _previewBlurScore = null;
     _stableFrameCount = 0;
   }
 
   bool get _isFaceStable => _stableFrameCount >= _requiredStableFrames;
 
+  bool get _isFaceInsideOval =>
+      _geometry.isSingleFace && _geometry.isInsideGuide;
+
+  bool get _isPreviewSharpEnough =>
+      _previewBlurScore == null ||
+      _previewBlurScore! >= FaceQualityService.minPreviewBlurScore;
+
+  bool get _isReadyForCountdown =>
+      _geometry.isReadyForFinalCapture &&
+      _isFaceStable &&
+      _isPreviewSharpEnough;
+
+  int get _completedChecklistCount {
+    if (!_isFaceInsideOval) {
+      return 0;
+    }
+
+    var count = 1;
+    if (_geometry.isFramedWell) {
+      count = 2;
+    }
+    if (_geometry.isReadyForFinalCapture) {
+      count = 3;
+    }
+    if (_isFaceStable) {
+      count = 4;
+    }
+    if (_isFaceStable &&
+        _geometry.isReadyForFinalCapture &&
+        _isPreviewSharpEnough) {
+      count = 5;
+    }
+    return count;
+  }
+
+  double get _readinessProgress =>
+      _completedChecklistCount / _readinessStepCount;
+
+  String _formatDegreeRange(double limit) {
+    final rounded = limit.round();
+    return '-$rounded° s/d $rounded°';
+  }
+
   Color get _guideFrameColor {
     if (_countdownValue != null || _isCapturing) {
       return const Color(0xFF7EF2BC);
     }
-    if (_progress.isCompleted && _geometry.isReadyForFinalCapture && _isFaceStable) {
+    if (_isReadyForCountdown) {
       return const Color(0xFF7EF2BC);
     }
     if (_geometry.faceCount == 0) {
       return Colors.white.withValues(alpha: 0.88);
     }
+    if (_geometry.faceCount > 1) {
+      return const Color(0xFFFF8A65);
+    }
+    if (!_isFaceInsideOval) {
+      return Colors.white.withValues(alpha: 0.88);
+    }
     if (!_geometry.isFramedWell) {
       return const Color(0xFFFF8A65);
     }
-    if (_progress.isCompleted && !_geometry.isReadyForFinalCapture) {
+    if (_previewBlurScore != null && !_isPreviewSharpEnough) {
       return const Color(0xFFFFC857);
     }
 
-    return const Color(0xFF6DD3FF);
+    return const Color(0xFFFF8A65);
   }
 
-  String get _liveGuidanceText {
-    if (_errorMessage != null && _cameraController != null) {
-      return _errorMessage!;
-    }
-    if (_countdownValue != null) {
-      return 'Pose sudah cocok. Tahan dulu sampai countdown selesai.';
-    }
-    if (_progress.isCompleted && !_geometry.isReadyForFinalCapture) {
-      return _geometry.finalCaptureGuidance;
-    }
-    if (_progress.isCompleted && !_isFaceStable) {
-      return 'Bagus, tahan wajah tetap stabil sebentar lagi.';
-    }
 
-    return _progress.detail;
-  }
 
-  void _handleAutoCaptureState(FaceFrameGeometry geometry, LivenessProgress progress) {
+  void _handleAutoCaptureState(FaceFrameGeometry geometry) {
     if (_isCapturing) {
       return;
     }
 
-    if (!geometry.isReadyForFinalCapture) {
+    if (!geometry.isReadyForFinalCapture ||
+        !_isFaceStable ||
+        !_isPreviewSharpEnough) {
       _cancelCountdown();
+      _hasBlinked = false;
       return;
+    }
+
+    if (!_hasBlinked) {
+      final face = geometry.primaryFace;
+      if (face != null) {
+        final leftEyeOpen = face.leftEyeOpenProbability ?? 1.0;
+        final rightEyeOpen = face.rightEyeOpenProbability ?? 1.0;
+        // Require both eyes to be closed/squinted (< 0.25) simultaneously to count as a blink
+        if (leftEyeOpen < 0.25 && rightEyeOpen < 0.25) {
+          _hasBlinked = true;
+          // Trigger rebuild to update UI immediately
+          if (mounted) setState(() {});
+        }
+      }
+      return; // Wait until they blink
     }
 
     if (_countdownValue != null) {
       return;
     }
 
-    if (progress.isCompleted && _isFaceStable) {
-      _startCountdown();
-      return;
-    }
-
-    _cancelCountdown();
+    _startCountdown();
   }
 
   void _startCountdown() {
     _countdownTimer?.cancel();
-    setState(() {
-      _countdownValue = _captureCountdownStart;
-      _countdownMessage = 'Tahan posisi, foto akan diambil otomatis.';
-    });
     _countdownRingController
       ..stop()
       ..reset()
       ..forward();
+      
+    setState(() {
+      _countdownValue = _captureCountdownStart;
+      _countdownMessage = 'Wajah sudah pas. Tahan posisi...';
+    });
 
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
@@ -427,24 +480,18 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
         return;
       }
 
-      final current = _countdownValue;
-      if (current == null) {
-        timer.cancel();
-        return;
-      }
-
-      if (current <= 1) {
+      if (_countdownValue != null && _countdownValue! > 1) {
+        setState(() {
+          _countdownValue = _countdownValue! - 1;
+        });
+      } else {
         timer.cancel();
         setState(() {
           _countdownValue = null;
+          _countdownMessage = 'Mengambil foto...';
         });
         unawaited(_captureFinalPhoto());
-        return;
       }
-
-      setState(() {
-        _countdownValue = current - 1;
-      });
     });
   }
 
@@ -461,6 +508,21 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     } else {
       _countdownValue = null;
     }
+  }
+
+  double? _estimatePreviewBlurScore(
+    CameraImage image,
+    FaceFrameGeometry geometry,
+  ) {
+    final face = geometry.primaryFace;
+    if (face == null || !geometry.isReadyForFinalCapture) {
+      return null;
+    }
+
+    return _qualityService.estimatePreviewBlurScore(
+      image: image,
+      faceBounds: face.boundingBox,
+    );
   }
 
   InputImage? _inputImageFromCameraImage(CameraImage image) {
@@ -507,6 +569,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     if (rotation == null || format == null) {
       return null;
     }
+    _latestFrameRotation = rotation;
 
     final isAndroid = defaultTargetPlatform == TargetPlatform.android;
     final isiOS = defaultTargetPlatform == TargetPlatform.iOS;
@@ -557,8 +620,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
       if (!assessment.passes) {
         setState(() {
-          _livenessController.reset();
-          _progress = _livenessController.initialProgress;
           _geometry = FaceFrameGeometry.empty();
           _resetStabilityState();
           _errorMessage = assessment.message;
@@ -604,10 +665,21 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     }
   }
 
-  Future<void> _stopCamera() async {
+  Future<void> _stopCamera({bool detachPreview = true}) async {
     final controller = _cameraController;
-    _cameraController = null;
+    if (detachPreview && mounted && controller != null) {
+      setState(() {
+        _cameraController = null;
+      });
+      await Future<void>.delayed(Duration.zero);
+    } else {
+      _cameraController = null;
+    }
     _resetStabilityState();
+    _latestFrameImageSize = null;
+    _latestFrameRotation = null;
+    _lastProcessedAt = null;
+    _isProcessingFrame = false;
     if (controller == null) {
       return;
     }
@@ -623,25 +695,20 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     await controller.dispose();
   }
 
-  Future<void> _syncBrightnessForGeometry(FaceFrameGeometry geometry) async {
+  Future<void> _boostBrightness() async {
     if (kIsWeb) {
       return;
     }
 
-    final shouldBoost = geometry.faceCount > 0;
-    if (shouldBoost == _isBrightnessBoosted || _isSettingBrightness) {
+    if (_isBrightnessBoosted || _isSettingBrightness) {
       return;
     }
 
     _isSettingBrightness = true;
     try {
-      _defaultBrightness ??= await _screenBrightness.current;
-      if (shouldBoost) {
-        await _screenBrightness.setScreenBrightness(1.0);
-        _isBrightnessBoosted = true;
-      } else {
-        await _restoreBrightness();
-      }
+      _defaultBrightness ??= await _screenBrightness.application;
+      await _screenBrightness.setApplicationScreenBrightness(1.0);
+      _isBrightnessBoosted = true;
     } catch (_) {
       // Ignore brightness errors on unsupported devices.
     } finally {
@@ -661,9 +728,9 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     try {
       if (_defaultBrightness != null) {
         final value = _defaultBrightness!.clamp(0.0, 1.0);
-        await _screenBrightness.setScreenBrightness(value);
+        await _screenBrightness.setApplicationScreenBrightness(value);
       } else {
-        await _screenBrightness.resetScreenBrightness();
+        await _screenBrightness.resetApplicationScreenBrightness();
       }
     } catch (_) {
       // Ignore brightness errors on unsupported devices.
@@ -677,8 +744,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       _result = null;
       _errorMessage = null;
       _geometry = FaceFrameGeometry.empty();
-      _livenessController.reset();
-      _progress = _livenessController.initialProgress;
       _resetStabilityState();
     });
     _cancelCountdown();
@@ -706,8 +771,9 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
                 children: [
                   Positioned.fill(child: _buildCameraBody()),
                   Positioned.fill(child: _buildGuideFrame()),
-                  if (_countdownValue != null)
-                    Positioned.fill(child: _buildCountdownOverlay()),
+                  Positioned.fill(child: _buildFaceContourOverlay()),
+                  if (_countdownValue != null || (!_hasBlinked && _isReadyForCountdown))
+                    Positioned.fill(child: _buildCenterOverlay()),
                   Positioned(
                     top: 12,
                     left: 16,
@@ -749,8 +815,34 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
     return Transform.scale(
       scale: scale,
-      child: Center(
-        child: CameraPreview(controller),
+      child: Center(child: CameraPreview(controller)),
+    );
+  }
+
+  Widget _buildFaceContourOverlay() {
+    final controller = _cameraController;
+    final face = _geometry.primaryFace;
+    final imageSize = _latestFrameImageSize;
+    final imageRotation = _latestFrameRotation;
+    if (_isInitializing ||
+        controller == null ||
+        !controller.value.isInitialized ||
+        face == null ||
+        imageSize == null ||
+        imageRotation == null) {
+      return const SizedBox.shrink();
+    }
+
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _FaceContourOverlayPainter(
+          face: face,
+          imageSize: imageSize,
+          imageRotation: imageRotation,
+          mirrorHorizontally:
+              controller.description.lensDirection == CameraLensDirection.front,
+          accentColor: _guideFrameColor,
+        ),
       ),
     );
   }
@@ -762,9 +854,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          CustomPaint(
-            painter: _HolePunchPainter(guideSize: guideSize),
-          ),
+          CustomPaint(painter: _HolePunchPainter(guideSize: guideSize)),
           Center(
             child: SizedBox(
               width: guideSize.width + 28,
@@ -777,7 +867,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
                     height: guideSize.height + 24,
                     child: CustomPaint(
                       painter: _GuideProgressPainter(
-                        progress: _progress.completedSteps / 3,
+                        progress: _readinessProgress,
                         color: _guideFrameColor,
                       ),
                     ),
@@ -807,17 +897,11 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
                       painter: _GuideOutlinePainter(
                         color: _guideFrameColor,
                         isLocked:
-                            _countdownValue != null ||
-                            (_progress.isCompleted &&
-                                _geometry.isReadyForFinalCapture &&
-                                _isFaceStable),
+                            _countdownValue != null || _isReadyForCountdown,
                       ),
                     ),
                   ),
-                  Positioned(
-                    top: 0,
-                    child: _buildGuideLabel(),
-                  ),
+                  Positioned(top: 0, child: _buildGuideLabel()),
                 ],
               ),
             ),
@@ -828,11 +912,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   }
 
   Widget _buildGuideLabel() {
-    final ready =
-        _countdownValue != null ||
-        (_progress.isCompleted &&
-            _geometry.isReadyForFinalCapture &&
-            _isFaceStable);
+    final ready = _countdownValue != null || _isReadyForCountdown;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -849,7 +929,9 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
         ),
       ),
       child: Text(
-        ready ? 'Wajah terkunci, siap difoto' : 'Posisikan wajah di dalam oval',
+        ready
+            ? 'Range aman, auto capture'
+            : 'Pastikan wajah masuk penuh ke oval',
         style: TextStyle(
           color: ready ? const Color(0xFF7EF2BC) : Colors.white,
           fontWeight: FontWeight.w700,
@@ -859,45 +941,64 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     );
   }
 
-  Widget _buildCountdownOverlay() {
+  Widget _buildCenterOverlay() {
+    final showTimer = _countdownValue != null;
+    final message = showTimer
+        ? _countdownMessage
+        : 'Wajah terkunci.\nSekarang KEDIPKAN KEDUA MATA ANDA\nuntuk membuktikan Anda bukan layar HP.';
+
     return IgnorePointer(
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 94,
-              height: 94,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.black.withValues(alpha: 0.58),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.82),
-                  width: 2,
+            if (showTimer)
+              Container(
+                width: 94,
+                height: 94,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withValues(alpha: 0.58),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    width: 2,
+                  ),
+                ),
+                child: Text(
+                  '$_countdownValue',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
-              child: Text(
-                '$_countdownValue',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 38,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
+            if (showTimer) const SizedBox(height: 14),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.58),
-                borderRadius: BorderRadius.circular(999),
+                color: showTimer
+                    ? Colors.black.withValues(alpha: 0.58)
+                    : const Color(0xFFE53935).withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  if (!showTimer)
+                    BoxShadow(
+                      color: const Color(0xFFE53935).withValues(alpha: 0.4),
+                      blurRadius: 12,
+                      spreadRadius: 2,
+                    ),
+                ],
               ),
               child: Text(
-                _countdownMessage,
+                message,
+                textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.92),
-                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.98),
+                  fontWeight: FontWeight.w800,
+                  fontSize: showTimer ? 14 : 16,
+                  height: 1.4,
                 ),
               ),
             ),
@@ -938,84 +1039,175 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
+      child: _buildStatusPanel(),
+    );
+  }
+
+  Widget _buildStatusPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Status wajah live',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.92),
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _buildStatusCard(
+                icon: Icons.compress_rounded,
+                title: 'Jarak',
+                subtitle: 'Dekat / Jauh',
+                valueText: '${(_geometry.faceWidthRatio * 100).round()}%',
+                isAligned: _geometry.isLargeEnough && !_geometry.isTooLarge,
+                alignedLabel: 'Aman',
+                warningLabel: _geometry.isTooLarge ? 'Mundur sedikit' : 'Terlalu jauh',
+                safeRange: FaceQualityService.formatRatioRange(
+                  FaceQualityService.minFaceWidthRatio,
+                  FaceQualityService.maxFaceWidthRatio,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildStatusCard(
+                icon: Icons.swap_horiz_rounded,
+                title: 'Yaw',
+                subtitle: 'Kiri / Kanan',
+                valueText: '${_geometry.yaw.toStringAsFixed(1)}°',
+                isAligned: _geometry.hasNeutralYaw,
+                alignedLabel: 'Aman',
+                warningLabel: 'Tengok lurus',
+                safeRange: _formatDegreeRange(
+                  FaceQualityService.maxNeutralYawDegrees,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildStatusCard(
+                icon: Icons.swap_vert_rounded,
+                title: 'Pitch',
+                subtitle: 'Naik / Turun',
+                valueText: '${_geometry.pitch.toStringAsFixed(1)}°',
+                isAligned: _geometry.hasNeutralPitch,
+                alignedLabel: 'Aman',
+                warningLabel: 'Dagu sejajar',
+                safeRange: _formatDegreeRange(
+                  FaceQualityService.maxNeutralPitchDegrees,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildStatusCard(
+                icon: Icons.screen_rotation_alt_rounded,
+                title: 'Roll',
+                subtitle: 'Miring',
+                valueText: '${_geometry.roll.toStringAsFixed(1)}°',
+                isAligned: _geometry.hasAcceptableRoll,
+                alignedLabel: 'Aman',
+                warningLabel: 'Terlalu miring',
+                safeRange: _formatDegreeRange(
+                  FaceQualityService.maxAcceptableRollDegrees,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String valueText,
+    required bool isAligned,
+    required String alignedLabel,
+    required String warningLabel,
+    required String safeRange,
+  }) {
+    final accentColor = isAligned
+        ? const Color(0xFF25B26B)
+        : const Color(0xFFFFB14A);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accentColor.withValues(alpha: 0.28)),
+      ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                _progress.title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              Text(
-                '${(_progress.completedSteps / 3 * 100).toInt()}%',
-                style: const TextStyle(
-                  color: Color(0xFF25B26B),
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
+              Icon(icon, size: 14, color: accentColor),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            _liveGuidanceText,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.78),
-              height: 1.45,
+            valueText,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildStatusChip('Deteksi', _geometry.faceCount == 1),
-              _buildStatusChip('Frame', _geometry.isFramedWell),
-              _buildStatusChip('Pose', _geometry.isReadyForFinalCapture),
-              _buildStatusChip('Stabil', _isFaceStable),
-              _buildStatusChip(
-                'Timer',
-                _countdownValue != null || _isCapturing,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 3),
           Text(
-            'Wajah: ${(100 * _geometry.faceWidthRatio).round()}% lebar oval • Yaw ${_geometry.yaw.toStringAsFixed(1)}° • Pitch ${_geometry.pitch.toStringAsFixed(1)}° • Stabil ${math.min(_stableFrameCount, _requiredStableFrames)}/$_requiredStableFrames',
+            isAligned ? alignedLabel : warningLabel,
+            style: TextStyle(
+              color: accentColor,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            safeRange,
+            style: TextStyle(
+              color: accentColor.withValues(alpha: 0.92),
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.68),
-              fontSize: 12,
+              fontSize: 9.5,
+              height: 1.3,
               fontWeight: FontWeight.w600,
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildStatusChip(String title, bool isDone) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: isDone
-            ? const Color(0xFF25B26B)
-            : Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        title,
-        style: TextStyle(
-          color: isDone ? Colors.black : Colors.white,
-          fontWeight: FontWeight.w800,
-        ),
       ),
     );
   }
@@ -1248,45 +1440,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   }
 }
 
-class _CountdownRingPainter extends CustomPainter {
-  final double progress;
-
-  const _CountdownRingPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.shortestSide / 2) - 3;
-    final basePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.16)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4;
-    final progressPaint = Paint()
-      ..color = AppTheme.primary
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawCircle(center, radius, basePaint);
-
-    final sweep = 2 * math.pi * progress.clamp(0.0, 1.0);
-    if (sweep > 0.0) {
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        -math.pi / 2,
-        sweep,
-        false,
-        progressPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CountdownRingPainter oldDelegate) {
-    return oldDelegate.progress != progress;
-  }
-}
-
 class _HolePunchPainter extends CustomPainter {
   final Size guideSize;
 
@@ -1296,11 +1449,13 @@ class _HolePunchPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final path = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addOval(Rect.fromCenter(
-        center: Offset(size.width / 2, size.height / 2),
-        width: guideSize.width,
-        height: guideSize.height,
-      ));
+      ..addOval(
+        Rect.fromCenter(
+          center: Offset(size.width / 2, size.height / 2),
+          width: guideSize.width,
+          height: guideSize.height,
+        ),
+      );
     path.fillType = PathFillType.evenOdd;
     canvas.drawPath(
       path,
@@ -1402,14 +1557,24 @@ class _GuideOutlinePainter extends CustomPainter {
       markerPaint,
     );
     canvas.drawArc(
-      Rect.fromLTWH(size.width - markerWidth - 12, 18, markerWidth, markerHeight),
+      Rect.fromLTWH(
+        size.width - markerWidth - 12,
+        18,
+        markerWidth,
+        markerHeight,
+      ),
       -math.pi / 2,
       math.pi / 2,
       false,
       markerPaint,
     );
     canvas.drawArc(
-      Rect.fromLTWH(12, size.height - markerHeight - 18, markerWidth, markerHeight),
+      Rect.fromLTWH(
+        12,
+        size.height - markerHeight - 18,
+        markerWidth,
+        markerHeight,
+      ),
       math.pi / 2,
       math.pi / 2,
       false,
@@ -1432,5 +1597,132 @@ class _GuideOutlinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _GuideOutlinePainter oldDelegate) {
     return oldDelegate.color != color || oldDelegate.isLocked != isLocked;
+  }
+}
+
+class _FaceContourOverlayPainter extends CustomPainter {
+  final Face face;
+  final Size imageSize;
+  final InputImageRotation imageRotation;
+  final bool mirrorHorizontally;
+  final Color accentColor;
+
+  const _FaceContourOverlayPainter({
+    required this.face,
+    required this.imageSize,
+    required this.imageRotation,
+    required this.mirrorHorizontally,
+    required this.accentColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (imageSize.width <= 0 || imageSize.height <= 0) {
+      return;
+    }
+
+    final boxPaint = Paint()
+      ..color = const Color(0xFFFF4B4B)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
+    final linePaint = Paint()
+      ..color = accentColor.withValues(alpha: 0.92)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final pointPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.86)
+      ..style = PaintingStyle.fill
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 4;
+
+    canvas.drawRect(_mapImageRectToCanvas(face.boundingBox, size), boxPaint);
+
+    for (final contour in face.contours.values) {
+      final points = contour?.points;
+      if (points == null || points.isEmpty) {
+        continue;
+      }
+
+      final canvasPoints = points
+          .map(
+            (point) => _mapImagePointToCanvas(
+              point.x.toDouble(),
+              point.y.toDouble(),
+              size,
+            ),
+          )
+          .toList(growable: false);
+      if (canvasPoints.length < 2) {
+        continue;
+      }
+
+      final path = Path()..moveTo(canvasPoints.first.dx, canvasPoints.first.dy);
+      for (var i = 1; i < canvasPoints.length; i++) {
+        path.lineTo(canvasPoints[i].dx, canvasPoints[i].dy);
+      }
+      if (contour!.type == FaceContourType.face ||
+          contour.type == FaceContourType.leftEye ||
+          contour.type == FaceContourType.rightEye ||
+          contour.type == FaceContourType.upperLipTop ||
+          contour.type == FaceContourType.lowerLipBottom) {
+        path.close();
+      }
+
+      canvas.drawPath(path, linePaint);
+      canvas.drawPoints(PointMode.points, canvasPoints, pointPaint);
+    }
+  }
+
+  Rect _mapImageRectToCanvas(Rect rect, Size canvasSize) {
+    final mappedPoints = [
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomLeft,
+      rect.bottomRight,
+    ].map((point) => _mapImagePointToCanvas(point.dx, point.dy, canvasSize));
+    final minX = mappedPoints.map((point) => point.dx).reduce(math.min);
+    final maxX = mappedPoints.map((point) => point.dx).reduce(math.max);
+    final minY = mappedPoints.map((point) => point.dy).reduce(math.min);
+    final maxY = mappedPoints.map((point) => point.dy).reduce(math.max);
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
+  }
+
+  Offset _mapImagePointToCanvas(double x, double y, Size canvasSize) {
+    final rotatedImageSize = _rotatedImageSize();
+    final scale = math.max(
+      canvasSize.width / rotatedImageSize.width,
+      canvasSize.height / rotatedImageSize.height,
+    );
+    final drawnWidth = rotatedImageSize.width * scale;
+    final drawnHeight = rotatedImageSize.height * scale;
+    final dx = (canvasSize.width - drawnWidth) / 2;
+    final dy = (canvasSize.height - drawnHeight) / 2;
+    final mappedX = mirrorHorizontally
+        ? dx + drawnWidth - (x * scale)
+        : dx + (x * scale);
+    final mappedY = dy + (y * scale);
+    return Offset(mappedX, mappedY);
+  }
+
+  Size _rotatedImageSize() {
+    switch (imageRotation) {
+      case InputImageRotation.rotation90deg:
+      case InputImageRotation.rotation270deg:
+        return Size(imageSize.height, imageSize.width);
+      case InputImageRotation.rotation0deg:
+      case InputImageRotation.rotation180deg:
+        return imageSize;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _FaceContourOverlayPainter oldDelegate) {
+    return oldDelegate.face != face ||
+        oldDelegate.imageSize != imageSize ||
+        oldDelegate.imageRotation != imageRotation ||
+        oldDelegate.mirrorHorizontally != mirrorHorizontally ||
+        oldDelegate.accentColor != accentColor;
   }
 }

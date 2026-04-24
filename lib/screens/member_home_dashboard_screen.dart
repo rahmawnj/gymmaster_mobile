@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/member_dashboard.dart';
@@ -6,7 +7,6 @@ import '../services/member_dashboard_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
-import '../widgets/recent_visit_card.dart';
 import 'auth_screen.dart';
 import 'visit_history_screen.dart';
 
@@ -25,9 +25,13 @@ class MemberHomeDashboardScreen extends StatefulWidget {
       _MemberHomeDashboardScreenState();
 }
 
-class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
+class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
+    with TickerProviderStateMixin {
   final _dashboardService = const MemberDashboardService();
   final _sessionStorage = const SessionStorage();
+
+  late final AnimationController _entranceController;
+  late String _profileImageRevision;
 
   MemberDashboard? _dashboard;
   bool _isLoading = true;
@@ -36,12 +40,27 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _profileImageRevision = _nextProfileImageRevision();
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 760),
+    )..forward();
     _loadDashboard();
+  }
+
+  @override
+  void dispose() {
+    _entranceController.dispose();
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant MemberHomeDashboardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.user != widget.user ||
+        oldWidget.user.imageUrl != widget.user.imageUrl) {
+      _profileImageRevision = _nextProfileImageRevision();
+    }
     if (oldWidget.user.memberCode != widget.user.memberCode ||
         oldWidget.user.name != widget.user.name ||
         oldWidget.user.status != widget.user.status) {
@@ -91,6 +110,26 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
     return widget.user.phone.trim();
   }
 
+  String get _profileImageUrl {
+    return widget.user.imageUrl.trim();
+  }
+
+  String get _profileImageRequestUrl {
+    final rawUrl = _profileImageUrl;
+    if (rawUrl.isEmpty) {
+      return '';
+    }
+
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null) {
+      return rawUrl;
+    }
+
+    final queryParameters = Map<String, String>.from(uri.queryParameters);
+    queryParameters['v'] = _profileImageRevision;
+    return uri.replace(queryParameters: queryParameters).toString();
+  }
+
   String get _initials {
     final parts = _displayName
         .split(' ')
@@ -108,6 +147,9 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
         .toUpperCase();
   }
+
+  String _nextProfileImageRevision() =>
+      DateTime.now().microsecondsSinceEpoch.toString();
 
   Future<void> _loadDashboard({bool showLoader = true}) async {
     if (showLoader && mounted) {
@@ -183,11 +225,20 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                     child: Column(
                       children: [
-                        _buildTopBar(context),
+                        _buildEntranceItem(
+                          order: 0,
+                          child: _buildTopBar(context),
+                        ),
                         const SizedBox(height: 10),
-                        _buildGreetingCard(context),
+                        _buildEntranceItem(
+                          order: 1,
+                          child: _buildGreetingCard(context),
+                        ),
                         const SizedBox(height: 20),
-                        _buildMembershipCard(),
+                        _buildEntranceItem(
+                          order: 2,
+                          child: _buildMembershipCard(),
+                        ),
                       ],
                     ),
                   ),
@@ -204,14 +255,26 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
                         child: Center(child: CircularProgressIndicator()),
                       ),
                     ] else if (_errorMessage != null) ...[
-                      _buildErrorCard(context),
+                      _buildEntranceItem(
+                        order: 3,
+                        child: _buildErrorCard(context),
+                      ),
                       const SizedBox(height: 24),
                     ],
-                    _buildQuickActions(context),
+                    _buildEntranceItem(
+                      order: 3,
+                      child: _buildQuickActions(context),
+                    ),
                     const SizedBox(height: 24),
-                    _buildPromoCard(context),
+                    _buildEntranceItem(
+                      order: 4,
+                      child: _buildPromoCard(context),
+                    ),
                     const SizedBox(height: 14),
-                    _buildRecentVisitCard(context),
+                    _buildEntranceItem(
+                      order: 5,
+                      child: _buildRecentVisitCard(context),
+                    ),
                   ],
                 ),
               ),
@@ -219,6 +282,29 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildEntranceItem({required int order, required Widget child}) {
+    final start = (order * 0.08).clamp(0.0, 0.58).toDouble();
+    final end = (start + 0.48).clamp(0.0, 1.0).toDouble();
+
+    return AnimatedBuilder(
+      animation: _entranceController,
+      child: child,
+      builder: (context, child) {
+        final progress = Curves.easeOutCubic.transform(
+          Interval(start, end).transform(_entranceController.value),
+        );
+
+        return Opacity(
+          opacity: progress,
+          child: Transform.translate(
+            offset: Offset(0, 14 * (1 - progress)),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -272,28 +358,42 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final onSurface = scheme.onSurface;
     final onSurfaceVariant = scheme.onSurfaceVariant;
-    final accentBackground =
-        isDark ? scheme.primary.withValues(alpha: 0.14) : const Color(0xFFFFE8EE);
-    final accentBorder =
-        isDark ? scheme.primary.withValues(alpha: 0.32) : const Color(0xFFF7C4D0);
+    final accentBackground = isDark
+        ? scheme.primary.withValues(alpha: 0.14)
+        : const Color(0xFFFFE8EE);
+    final accentBorder = isDark
+        ? scheme.primary.withValues(alpha: 0.32)
+        : const Color(0xFFF7C4D0);
 
     return Row(
       children: [
         Container(
           width: 46,
           height: 46,
-          alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: accentBackground,
             border: Border.all(color: accentBorder),
           ),
-          child: Text(
-            _initials,
-            style: const TextStyle(
-              color: AppTheme.primary,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
+          child: Padding(
+            padding: const EdgeInsets.all(1.5),
+            child: ClipOval(
+              child: _profileImageUrl.isNotEmpty
+                  ? Image.network(
+                      _profileImageRequestUrl,
+                      key: ValueKey(
+                        'dashboard-avatar-$_profileImageUrl|$_profileImageRevision',
+                      ),
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      filterQuality: FilterQuality.medium,
+                      webHtmlElementStrategy: kIsWeb
+                          ? WebHtmlElementStrategy.prefer
+                          : WebHtmlElementStrategy.never,
+                      errorBuilder: (context, error, stackTrace) =>
+                          _buildGreetingAvatarFallback(),
+                    )
+                  : _buildGreetingAvatarFallback(),
             ),
           ),
         ),
@@ -326,36 +426,56 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
     );
   }
 
+  Widget _buildGreetingAvatarFallback() {
+    return ColoredBox(
+      color: Colors.transparent,
+      child: Center(
+        child: Text(
+          _initials,
+          style: const TextStyle(
+            color: AppTheme.primary,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMembershipCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final status = _status;
     final isActive = status.toUpperCase() == 'ACTIVE';
     final statusLabel = status.isEmpty ? 'NONAKTIF' : status.toUpperCase();
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(30),
-        gradient: const LinearGradient(
+        borderRadius: BorderRadius.circular(15),
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFFF165C), Color(0xFFE52E71), Color(0xFFFF5F7E)],
+          colors: isDark
+              ? const [Color(0xFF1B1B1F), Color(0xFF241118), Color(0xFF121214)]
+              : const [Color(0xFF1A1A1D), Color(0xFF27131A), Color(0xFF16161A)],
         ),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.primary.withValues(alpha: 0.28),
-            blurRadius: 26,
-            offset: const Offset(0, 16),
+            color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.16),
+            blurRadius: 24,
+            spreadRadius: -8,
+            offset: const Offset(0, 14),
           ),
         ],
       ),
       child: Stack(
         children: [
           Positioned(
-            right: -6,
-            top: 8,
+            right: 12,
+            top: 22,
             child: Icon(
               Icons.fitness_center_rounded,
-              size: 108,
-              color: Colors.white.withValues(alpha: 0.10),
+              size: 68,
+              color: Colors.white.withValues(alpha: 0.08),
             ),
           ),
           Column(
@@ -508,13 +628,19 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
 
   Widget _buildPromoCard(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final onSurfaceVariant = scheme.onSurfaceVariant;
     final isDark = theme.brightness == Brightness.dark;
-    final cardColor =
-        isDark ? const Color(0xFF1B1B1B) : const Color(0xFFFFEEF2);
-    final borderColor =
-        isDark ? const Color(0xFF2A2A2A) : const Color(0xFFFFB8C7);
+    final cardColor = isDark
+        ? const Color(0xFF17242B)
+        : const Color(0xFFEAF4FF);
+    final borderColor = isDark
+        ? const Color(0xFF27424E)
+        : const Color(0xFFC8DCF7);
+    final accentColor = isDark
+        ? const Color(0xFF7CC7FF)
+        : const Color(0xFF2563EB);
+    final bodyColor = isDark
+        ? const Color(0xFFB6C4CD)
+        : const Color(0xFF4B647C);
 
     return Material(
       color: Colors.transparent,
@@ -531,42 +657,41 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
             border: Border.all(color: borderColor),
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Ajak Teman, Dapat Diskon!',
                       style: TextStyle(
-                        color: AppTheme.primary,
+                        color: accentColor,
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
-                        height: 1.2,
+                        height: 1.25,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Dapatkan potongan 20% untuk bulan depan.',
                       style: TextStyle(
-                        color: onSurfaceVariant,
-                        fontSize: 15,
+                        color: bodyColor,
+                        fontSize: 13,
                         height: 1.45,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 12),
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppTheme.primary.withValues(alpha: 0.9),
-                  size: 34,
-                ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: accentColor.withValues(alpha: 0.92),
+                size: 34,
               ),
             ],
           ),
@@ -581,7 +706,10 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
     final onSurface = scheme.onSurface;
     final onSurfaceVariant = scheme.onSurfaceVariant;
     final isDark = theme.brightness == Brightness.dark;
-    final visits = _dashboard?.lastCheckins ?? const <MemberDashboardCheckin>[];
+    final visits =
+        (_dashboard?.lastCheckins ?? const <MemberDashboardCheckin>[])
+            .take(5)
+            .toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -593,22 +721,38 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
                 'Kunjungan Terakhir',
                 style: TextStyle(
                   color: onSurface,
-                  fontSize: 20,
+                  fontSize: 18,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ),
             TextButton(
+              style: ButtonStyle(
+                padding: WidgetStateProperty.all(EdgeInsets.zero),
+                minimumSize: WidgetStateProperty.all(Size.zero),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                overlayColor: WidgetStateProperty.all(Colors.transparent),
+                splashFactory: NoSplash.splashFactory,
+                foregroundColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.hovered)) {
+                    return AppTheme.primary.withValues(alpha: 0.72);
+                  }
+                  if (states.contains(WidgetState.pressed)) {
+                    return AppTheme.primary.withValues(alpha: 0.82);
+                  }
+                  return AppTheme.primary;
+                }),
+              ),
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const VisitHistoryScreen()),
                 );
               },
-              child: const Text(
-                'Lihat Semua',
-                style: TextStyle(
-                  color: AppTheme.primary,
-                  fontWeight: FontWeight.w800,
+              child: const Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'Lihat Semua',
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ),
@@ -653,19 +797,199 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
             ),
           )
         else
-          ...visits.take(5).map(
-            (visit) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: RecentVisitCard(
-                gym: visit.branchName.trim().isEmpty ? '-' : visit.branchName,
-                time: _formatDateTimeLabel(visit.checkinAt),
-                status: _visitStatusLabel(visit.status),
-                statusBadge: _visitStatusBadge(visit.status),
-                isDark: isDark,
+          ...visits.asMap().entries.map(
+            (entry) => Padding(
+              padding: EdgeInsets.only(
+                bottom: entry.key == visits.length - 1 ? 0 : 14,
+              ),
+              child: _buildVisitTimelineItem(
+                context,
+                visit: entry.value,
+                index: entry.key,
+                isFirst: entry.key == 0,
+                isLast: entry.key == visits.length - 1,
               ),
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildVisitTimelineItem(
+    BuildContext context, {
+    required MemberDashboardCheckin visit,
+    required int index,
+    required bool isFirst,
+    required bool isLast,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final onSurface = scheme.onSurface;
+    final onSurfaceVariant = scheme.onSurfaceVariant;
+    final branchName = visit.branchName.trim().isEmpty ? '-' : visit.branchName;
+    final statusLabel = _visitStatusLabel(visit.status);
+    final statusBadge = _visitStatusBadge(visit.status);
+    final normalizedStatus = visit.status.trim().toUpperCase();
+    final isCheckin = normalizedStatus == 'OPEN';
+    final lineColor = isDark
+        ? Colors.white.withValues(alpha: 0.12)
+        : Colors.black.withValues(alpha: 0.08);
+    final checkpointColor = isCheckin ? AppTheme.primary : AppTheme.success;
+    final badgeBackground = isCheckin
+        ? (isDark ? const Color(0xFF3D1E1E) : const Color(0xFFFFEBEB))
+        : (isDark ? const Color(0xFF183226) : const Color(0xFFEAF8F1));
+    final badgeForeground = isCheckin
+        ? (isDark ? const Color(0xFFFFB7B7) : AppTheme.primaryDark)
+        : (isDark ? const Color(0xFF91E1B7) : const Color(0xFF167C4F));
+    final checkpointGlow = isDark
+        ? checkpointColor.withValues(alpha: 0.22)
+        : checkpointColor.withValues(alpha: 0.12);
+    final start = (0.54 + (index * 0.05)).clamp(0.0, 0.9).toDouble();
+    final end = (start + 0.22).clamp(0.0, 1.0).toDouble();
+
+    return AnimatedBuilder(
+      animation: _entranceController,
+      builder: (context, child) {
+        final progress = Curves.easeOutCubic.transform(
+          Interval(start, end).transform(_entranceController.value),
+        );
+
+        return Opacity(
+          opacity: progress,
+          child: Transform.translate(
+            offset: Offset(0, 16 * (1 - progress)),
+            child: child,
+          ),
+        );
+      },
+      child: SizedBox(
+        height: 96,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 30,
+              child: Stack(
+                alignment: Alignment.topCenter,
+                children: [
+                  Positioned(
+                    top: isFirst ? 26 : 0,
+                    bottom: isLast ? 26 : 0,
+                    child: Container(
+                      width: 2,
+                      decoration: BoxDecoration(
+                        color: lineColor,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 22,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: checkpointColor,
+                        border: Border.all(
+                          color: isDark
+                              ? theme.scaffoldBackgroundColor
+                              : Colors.white,
+                          width: 3,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: checkpointGlow,
+                            blurRadius: 16,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF171717) : Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: isDark
+                      ? const []
+                      : [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 18,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            branchName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: onSurface,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDateTimeLabel(visit.checkinAt),
+                            style: TextStyle(
+                              color: onSurfaceVariant.withValues(alpha: 0.95),
+                              fontSize: 12.5,
+                              height: 1.45,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            statusLabel,
+                            style: TextStyle(
+                              color: onSurfaceVariant.withValues(alpha: 0.88),
+                              fontSize: 12.5,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeBackground,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        statusBadge,
+                        style: TextStyle(
+                          color: badgeForeground,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -741,33 +1065,90 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen> {
   }
 
   void _showComingSoon(BuildContext context, String title) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$title masih disiapkan.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$title masih disiapkan.')));
   }
 
   Future<void> _handleLogout(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
+        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
+        final dialogBackground = isDark
+            ? const Color(0xFF141414)
+            : Colors.white;
+        final titleColor = isDark ? Colors.white : const Color(0xFF111111);
+        final contentColor = isDark
+            ? Colors.white.withValues(alpha: 0.78)
+            : const Color(0xFF4B5563);
+        final cancelColor = isDark ? Colors.white : const Color(0xFF111111);
+        final confirmBackground = isDark
+            ? Colors.white
+            : const Color(0xFF111111);
+        final confirmForeground = isDark
+            ? const Color(0xFF111111)
+            : Colors.white;
+
         return AlertDialog(
+          backgroundColor: dialogBackground,
+          surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(26),
+            borderRadius: BorderRadius.circular(24),
           ),
-          title: const Text(
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+          contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          title: Text(
             'Keluar akun',
-            style: TextStyle(fontWeight: FontWeight.w800),
+            style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
           ),
-          content: const Text(
+          content: Text(
             'Yakin mau keluar dari akun ini sekarang?',
-            style: TextStyle(height: 1.5),
+            style: TextStyle(
+              color: contentColor,
+              height: 1.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           actions: [
             TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: cancelColor,
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Batal'),
             ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: confirmBackground,
+                foregroundColor: confirmForeground,
+                elevation: 0,
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Keluar'),
             ),
@@ -808,8 +1189,9 @@ class _MembershipLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment:
-          alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
       children: [
         Text(
           title,
@@ -855,13 +1237,12 @@ class _MembershipLabel extends StatelessWidget {
   }
 }
 
-class _HomeActionTile extends StatelessWidget {
+class _HomeActionTile extends StatefulWidget {
   final IconData icon;
   final Color iconColor;
   final Color backgroundColor;
   final String label;
   final VoidCallback onTap;
-  final Color? labelColor;
 
   const _HomeActionTile({
     required this.icon,
@@ -869,37 +1250,67 @@ class _HomeActionTile extends StatelessWidget {
     required this.backgroundColor,
     required this.label,
     required this.onTap,
-    this.labelColor,
   });
+
+  @override
+  State<_HomeActionTile> createState() => _HomeActionTileState();
+}
+
+class _HomeActionTileState extends State<_HomeActionTile> {
+  bool _isPressed = false;
+
+  void _setPressed(bool value) {
+    if (_isPressed == value) return;
+    setState(() {
+      _isPressed = value;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final resolvedLabelColor = labelColor ?? scheme.onSurface;
     return InkWell(
-      onTap: onTap,
+      onTap: widget.onTap,
+      onTapDown: (_) => _setPressed(true),
+      onTapCancel: () => _setPressed(false),
+      onTapUp: (_) => _setPressed(false),
       borderRadius: BorderRadius.circular(22),
-      child: Column(
-        children: [
-          Container(
-            width: 62,
-            height: 62,
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(20),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.94 : 1,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                color: widget.backgroundColor,
+                borderRadius: BorderRadius.circular(_isPressed ? 18 : 20),
+                boxShadow: [
+                  if (_isPressed)
+                    BoxShadow(
+                      color: widget.iconColor.withValues(alpha: 0.20),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                ],
+              ),
+              child: Icon(widget.icon, color: widget.iconColor, size: 30),
             ),
-            child: Icon(icon, color: iconColor, size: 30),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: resolvedLabelColor,
-              fontWeight: FontWeight.w800,
+            const SizedBox(height: 6),
+            Text(
+              widget.label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

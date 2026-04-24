@@ -8,6 +8,7 @@ import '../models/gym.dart';
 import '../models/gym_access_request.dart';
 import '../services/auth_service.dart';
 import '../services/gym_service.dart';
+import '../services/screen_security_service.dart';
 import '../theme/app_theme.dart';
 
 class GymAccessQrScreen extends StatefulWidget {
@@ -26,6 +27,7 @@ class GymAccessQrScreen extends StatefulWidget {
 
 class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
   final _gymService = const GymService();
+  final _screenSecurityService = const ScreenSecurityService();
   GymAccessRequest? _accessRequest;
   bool _isLoading = true;
   bool _isRefreshing = false;
@@ -39,11 +41,13 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_screenSecurityService.setScreenProtection(true));
     _loadAccessRequest();
   }
 
   @override
   void dispose() {
+    unawaited(_screenSecurityService.setScreenProtection(false));
     _cancelTimers();
     super.dispose();
   }
@@ -79,7 +83,9 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
 
   void _markRequestExpiredLocally() {
     final currentRequest = _accessRequest;
-    if (currentRequest == null || currentRequest.isScanned || currentRequest.isExpired) {
+    if (currentRequest == null ||
+        currentRequest.isScanned ||
+        currentRequest.isExpired) {
       return;
     }
 
@@ -90,8 +96,12 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
         expiresInSeconds: 0,
         refreshAfterSeconds: 0,
         isExpired: true,
-        flashType: currentRequest.flashType.isNotEmpty ? currentRequest.flashType : 'warning',
-        flashTitle: currentRequest.flashTitle.isNotEmpty ? currentRequest.flashTitle : 'QR sudah expired',
+        flashType: currentRequest.flashType.isNotEmpty
+            ? currentRequest.flashType
+            : 'warning',
+        flashTitle: currentRequest.flashTitle.isNotEmpty
+            ? currentRequest.flashTitle
+            : 'QR sudah expired',
         flashMessage: currentRequest.flashMessage.isNotEmpty
             ? currentRequest.flashMessage
             : 'Masa berlaku QR sudah habis. Meminta QR baru...',
@@ -155,9 +165,11 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
           _cancelTimers();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(statusRequest.flashMessage.isNotEmpty
-                  ? statusRequest.flashMessage
-                  : 'QR sudah discan. Silakan masuk.'),
+              content: Text(
+                statusRequest.flashMessage.isNotEmpty
+                    ? statusRequest.flashMessage
+                    : 'QR sudah discan. Silakan masuk.',
+              ),
               backgroundColor: Colors.green.shade700,
             ),
           );
@@ -236,7 +248,10 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
   }
 
   Future<void> _onExpired() async {
-    if (!mounted || _isRefreshing || _isAutoRefreshQueued || (_accessRequest?.isScanned ?? false)) {
+    if (!mounted ||
+        _isRefreshing ||
+        _isAutoRefreshQueued ||
+        (_accessRequest?.isScanned ?? false)) {
       return;
     }
 
@@ -297,11 +312,14 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final qrPayload = _accessRequest?.qrPayload ??
-        const GymService().buildMemberAccessUri(
+    final qrPayload =
+        _accessRequest?.qrPayload ??
+        const GymService()
+            .buildMemberAccessUri(
               memberCode: widget.memberCode,
               gymCode: widget.gym.gymCode,
-            ).toString();
+            )
+            .toString();
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -353,13 +371,16 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
                       const SizedBox(height: 8),
                       Text(
                         _accessRequest == null
-                            ? 'Membuat request QR...' 
+                            ? 'Membuat request QR...'
                             : _accessRequest!.isScanned
-                                ? 'QR sudah discan. Silakan masuk.'
-                                : _accessRequest!.isExpired
-                                    ? 'QR expired. Memperbarui...'
-                                    : 'QR aktif selama 1 menit. Status: $_statusLabel',
-                        style: const TextStyle(color: Colors.white, height: 1.5),
+                            ? 'QR sudah discan. Silakan masuk.'
+                            : _accessRequest!.isExpired
+                            ? 'QR expired. Memperbarui...'
+                            : 'QR aktif selama 1 menit. Status: $_statusLabel',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          height: 1.5,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -427,7 +448,9 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            widget.gym.city.isEmpty ? 'Brand Gym' : widget.gym.city,
+                            widget.gym.city.isEmpty
+                                ? 'Brand Gym'
+                                : widget.gym.city,
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: AppTheme.muted,
@@ -435,7 +458,9 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
                             ),
                           ),
                           const SizedBox(height: 18),
-                          if (_secondsRemaining > 0 && !_accessRequest!.isScanned && !_accessRequest!.isExpired)
+                          if (_secondsRemaining > 0 &&
+                              !_accessRequest!.isScanned &&
+                              !_accessRequest!.isExpired)
                             Container(
                               margin: const EdgeInsets.only(bottom: 18),
                               child: Column(
@@ -458,20 +483,26 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
                                         CircularProgressIndicator(
                                           value: _requestDurationSeconds <= 0
                                               ? 0
-                                              : (_secondsRemaining / _requestDurationSeconds)
+                                              : (_secondsRemaining /
+                                                        _requestDurationSeconds)
                                                     .clamp(0.0, 1.0),
                                           strokeWidth: 8,
                                           backgroundColor: Colors.grey.shade200,
-                                          valueColor: AlwaysStoppedAnimation<Color>(
-                                            _secondsRemaining > 10 ? AppTheme.primary : Colors.red,
-                                          ),
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                _secondsRemaining > 10
+                                                    ? AppTheme.primary
+                                                    : Colors.red,
+                                              ),
                                         ),
                                         Text(
                                           '$_secondsRemaining',
                                           style: TextStyle(
                                             fontSize: 32,
                                             fontWeight: FontWeight.w900,
-                                            color: _secondsRemaining > 10 ? AppTheme.primary : Colors.red,
+                                            color: _secondsRemaining > 10
+                                                ? AppTheme.primary
+                                                : Colors.red,
                                           ),
                                         ),
                                       ],
@@ -524,12 +555,18 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline_rounded, color: AppTheme.primary),
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: AppTheme.primary,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           'QR berlaku 1 menit. Kalau belum discan sampai habis, halaman ini akan otomatis meminta QR baru dan tetap menampilkan status masuk saat scan berhasil.',
-                          style: const TextStyle(color: AppTheme.muted, height: 1.5),
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            height: 1.5,
+                          ),
                         ),
                       ),
                     ],
@@ -539,7 +576,9 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
                 ElevatedButton.icon(
                   onPressed: _isLoading || _isRefreshing ? null : _refreshNow,
                   icon: const Icon(Icons.refresh),
-                  label: Text(_isRefreshing ? 'Menyegarkan...' : 'Refresh QR Sekarang'),
+                  label: Text(
+                    _isRefreshing ? 'Menyegarkan...' : 'Refresh QR Sekarang',
+                  ),
                 ),
               ],
             ),
@@ -586,25 +625,23 @@ class _QrMatrix extends StatelessWidget {
               matrixSize,
               (y) => Row(
                 mainAxisSize: MainAxisSize.min,
-                children: List.generate(
-                  matrixSize,
-                  (x) {
-                    final mx = x - quietZone;
-                    final my = y - quietZone;
-                    final isDark = mx >= 0 &&
-                        my >= 0 &&
-                        mx < matrix.width &&
-                        my < matrix.height &&
-                        matrix.get(mx, my) == 1;
-                    return SizedBox(
-                      width: cellSize,
-                      height: cellSize,
-                      child: ColoredBox(
-                        color: isDark ? Colors.black : Colors.white,
-                      ),
-                    );
-                  },
-                ),
+                children: List.generate(matrixSize, (x) {
+                  final mx = x - quietZone;
+                  final my = y - quietZone;
+                  final isDark =
+                      mx >= 0 &&
+                      my >= 0 &&
+                      mx < matrix.width &&
+                      my < matrix.height &&
+                      matrix.get(mx, my) == 1;
+                  return SizedBox(
+                    width: cellSize,
+                    height: cellSize,
+                    child: ColoredBox(
+                      color: isDark ? Colors.black : Colors.white,
+                    ),
+                  );
+                }),
               ),
             ),
           ),

@@ -17,12 +17,14 @@ class MembershipException implements Exception {
 }
 
 class MembershipPurchaseResult {
+  final int transactionId;
   final String message;
   final String transactionCode;
   final String status;
   final int totalPrice;
 
   const MembershipPurchaseResult({
+    required this.transactionId,
     required this.message,
     required this.transactionCode,
     required this.status,
@@ -224,12 +226,15 @@ class MembershipService {
     debugPrint('===== MEMBERSHIP PURCHASE REQUEST END =====');
 
     final body = _decodeBody(response.body);
-    if (response.statusCode >= 200 && response.statusCode < 300) {
+    final apiStatus = _toInt(body['status']);
+    final effectiveStatus = apiStatus == 0 ? response.statusCode : apiStatus;
+    if (effectiveStatus >= 200 && effectiveStatus < 300) {
       final data = body['data'] as Map<String, dynamic>? ?? <String, dynamic>{};
       final message = body['message']?.toString().trim().isNotEmpty == true
           ? body['message'].toString()
           : 'Pembelian membership sedang menunggu konfirmasi.';
       return MembershipPurchaseResult(
+        transactionId: _toInt(data['id']),
         message: message,
         transactionCode: (data['transaction_code'] ?? '').toString(),
         status: (data['status'] ?? '').toString(),
@@ -237,7 +242,7 @@ class MembershipService {
       );
     }
 
-    throw MembershipException(_extractMessage(body, response.statusCode));
+    throw MembershipException(_extractMessage(body, effectiveStatus));
   }
 
   List<MemberMembership> _parseMembershipList(http.Response response) {
