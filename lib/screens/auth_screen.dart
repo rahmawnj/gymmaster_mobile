@@ -22,7 +22,6 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  // Ubah nilai ini kalau seluruh kartu/login sheet ingin dinaikkan atau diturunkan.
   static const double _cardStackVerticalOffset = -10;
   static const double _collapsedSheetMinHeight = 286;
   static const double _loginSheetMinHeight = 410;
@@ -619,12 +618,36 @@ class _AuthScreenState extends State<AuthScreen>
                         child: const Text('Masuk'),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: AppTheme.primary.withValues(alpha: 0.18),
+                          ),
+                        ),
+                        child: Text(
+                          'COMING SOON',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: AppTheme.primary,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton(
-                        onPressed: _isLoginMode ? null : () => _switchMode(false),
-                        child: const Text('Daftar — Coming Soon'),
+                        onPressed: null,
+                        child: const Text('Daftar'),
                       ),
                     ),
                   ],
@@ -824,7 +847,7 @@ class _AuthScreenState extends State<AuthScreen>
                                   foregroundColor: AppTheme.primary,
                                 ),
                                 child: Text(
-                                  _isLoginMode ? 'Daftar — Coming Soon' : 'Masuk',
+                                  _isLoginMode ? 'Daftar' : 'Masuk',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w800,
                                   ),
