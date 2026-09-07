@@ -618,36 +618,65 @@ class _AuthScreenState extends State<AuthScreen>
                         child: const Text('Masuk'),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: AppTheme.primary.withValues(alpha: 0.18),
-                          ),
-                        ),
-                        child: Text(
-                          'COMING SOON',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: AppTheme.primary,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: null,
-                        child: const Text('Daftar'),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: null,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFE5E7EB),
+                                disabledBackgroundColor: const Color(0xFFE5E7EB),
+                                foregroundColor: const Color(0xFF9CA3AF),
+                                disabledForegroundColor: const Color(0xFF9CA3AF),
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: const Text('Daftar'),
+                            ),
+                          ),
+                          Positioned(
+                            right: -8,
+                            top: -13,
+                            child: Transform.rotate(
+                              angle: 0.12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary,
+                                  borderRadius: BorderRadius.circular(5),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x22000000),
+                                      blurRadius: 6,
+                                      offset: Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  'COMING SOON',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.7,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
