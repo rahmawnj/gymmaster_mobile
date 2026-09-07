@@ -6,6 +6,7 @@ import '../models/gym_access_history_item.dart';
 import '../models/gym_access_request.dart';
 import '../models/gym.dart';
 import 'api_config.dart';
+import 'auth_manager.dart';
 import 'auth_service.dart';
 
 class JoinGymResult {
@@ -248,6 +249,9 @@ class GymService {
   }
 
   String _extractMessage(Map<String, dynamic> body, int statusCode) {
+    if (statusCode == 401) {
+      AuthManager.logout();
+    }
     final message = body['message']?.toString();
     if (message != null && message.isNotEmpty) {
       return message;

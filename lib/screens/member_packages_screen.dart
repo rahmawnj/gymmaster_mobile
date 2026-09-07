@@ -1,26 +1,33 @@
 import 'dart:async';
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
 import '../models/member_branch.dart';
 import '../models/member_membership.dart';
 import '../models/member_membership_option.dart';
+import '../models/member_training_package.dart';
+import '../models/member_trainer_package_option.dart';
 import '../models/user.dart';
 import '../services/camera_permission_service.dart';
 import '../services/membership_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/modern_modal_dialog.dart';
+import '../widgets/top_notification.dart';
 import 'qr_scanner_screen.dart';
 
 class MemberPackagesScreen extends StatefulWidget {
   final User currentUser;
   final VoidCallback? onBackRequested;
+  final GlobalKey? membershipCardKey;
 
   const MemberPackagesScreen({
     super.key,
     required this.currentUser,
     this.onBackRequested,
+    this.membershipCardKey,
   });
 
   @override
@@ -35,13 +42,16 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
 
   int _tabIndex = 0;
   bool _isMembershipsLoading = true;
+  bool _isTrainingPackagesLoading = true;
   bool _isBranchesLoading = true;
   bool _locationEnabled = false;
   bool _isResolvingScannedQr = false;
   String? _membershipErrorMessage;
+  String? _trainingPackageErrorMessage;
   String? _branchErrorMessage;
   String? _locationError;
   List<MemberMembership> _memberships = const [];
+  List<MemberTrainingPackage> _trainingPackages = const [];
   List<MemberBranch> _branches = const [];
   late final PageController _membershipPageController;
   int _currentMembershipIndex = 0;
@@ -52,6 +62,7 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     super.initState();
     _membershipPageController = PageController(viewportFraction: 0.92);
     _loadMemberships();
+    _loadTrainingPackages();
     _loadBranches();
   }
 
@@ -102,6 +113,50 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
         _isMembershipsLoading = false;
       });
     }
+  }
+
+  Future<void> _loadTrainingPackages() async {
+    setState(() {
+      _isTrainingPackagesLoading = true;
+      _trainingPackageErrorMessage = null;
+    });
+
+    try {
+      final session = await _sessionStorage.loadSession();
+      if (session == null || session.token.isEmpty) {
+        throw const MembershipException(
+          'Token tidak tersedia. Silakan login ulang.',
+        );
+      }
+
+      final result = await _membershipService.fetchActiveTrainingPackages(
+        token: session.token,
+        tokenType: session.tokenType,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _trainingPackages = result;
+        _isTrainingPackagesLoading = false;
+      });
+    } on MembershipException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _trainingPackageErrorMessage = error.message;
+        _isTrainingPackagesLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _trainingPackageErrorMessage =
+            'Gagal mengambil package training aktif.';
+        _isTrainingPackagesLoading = false;
+      });
+    }
+  }
+
+  Future<void> _refreshActivePackages() async {
+    await Future.wait([_loadMemberships(), _loadTrainingPackages()]);
   }
 
   Future<void> _loadBranches() async {
@@ -213,10 +268,10 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
         await _openBranchFromQr(rawValue);
         break;
       case CameraPermissionResult.denied:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Izin kamera dibutuhkan untuk mulai scan QR.'),
-          ),
+        TopNotification.show(
+          context,
+          message: 'Izin kamera dibutuhkan untuk mulai scan QR.',
+          type: TopNotificationType.error,
         );
         break;
       case CameraPermissionResult.permanentlyDenied:
@@ -263,10 +318,10 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       final branchId = _extractBranchIdFromQr(rawValue);
       if (branchId == null || branchId.isEmpty) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('QR ini tidak memiliki branch_id yang bisa dibuka.'),
-          ),
+        TopNotification.show(
+          context,
+          message: 'QR ini tidak memiliki branch_id yang bisa dibuka.',
+          type: TopNotificationType.error,
         );
         return;
       }
@@ -282,10 +337,10 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       );
 
       if (matchedBranch == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Branch dengan ID $branchId tidak ditemukan.'),
-          ),
+        TopNotification.show(
+          context,
+          message: 'Branch dengan ID $branchId tidak ditemukan.',
+          type: TopNotificationType.error,
         );
         return;
       }
@@ -298,15 +353,17 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       await _showBranchSelected(matchedBranch);
     } on MembershipException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
+      TopNotification.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+        message: error.message,
+        type: TopNotificationType.error,
+      );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gagal membuka branch dari hasil scan QR.'),
-        ),
+      TopNotification.show(
+        context,
+        message: 'Gagal membuka branch dari hasil scan QR.',
+        type: TopNotificationType.error,
       );
     } finally {
       if (mounted && _isResolvingScannedQr) {
@@ -372,9 +429,6 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
   }
 
   Future<void> _openActiveMembershipDetail(MemberMembership membership) async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-
     try {
       final session = await _sessionStorage.loadSession();
       if (session == null || session.token.isEmpty) {
@@ -443,11 +497,17 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       );
     } on MembershipException catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      TopNotification.show(
+        context,
+        message: error.message,
+        type: TopNotificationType.error,
+      );
     } catch (_) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Gagal membuka detail paket aktif.')),
+      TopNotification.show(
+        context,
+        message: 'Gagal membuka detail paket aktif.',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -491,34 +551,46 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
           SafeArea(
             top: false,
             bottom: false,
-            child: Column(
-              children: [
-                const SizedBox(height: 10),
-                _buildSegmentedTabs(
-                  surfaceColor: surfaceColor,
-                  inkSoft: inkSoft,
-                ),
-                const SizedBox(height: 10),
-                Expanded(
-                  child: _tabIndex == 0
-                      ? _buildActiveMembershipsView(
-                          isDark: isDark,
-                          surfaceColor: surfaceColor,
-                          surfaceSoft: surfaceSoft,
-                          inkColor: inkColor,
-                          muted: muted,
-                          borderColor: borderColor,
-                        )
-                      : _buildBuyPackageView(
-                          isDark: isDark,
-                          surfaceColor: surfaceColor,
-                          surfaceSoft: surfaceSoft,
-                          inkColor: inkColor,
-                          muted: muted,
-                          borderColor: borderColor,
-                        ),
-                ),
-              ],
+            child: GestureDetector(
+              onHorizontalDragEnd: (details) {
+                final velocity = details.primaryVelocity ?? 0;
+                if (velocity < -300 && _tabIndex == 0) {
+                  setState(() => _tabIndex = 1);
+                  _autoSlideTimer?.cancel();
+                } else if (velocity > 300 && _tabIndex == 1) {
+                  setState(() => _tabIndex = 0);
+                  _resetAutoSlide();
+                }
+              },
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  _buildSegmentedTabs(
+                    surfaceColor: surfaceColor,
+                    inkSoft: inkSoft,
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: _tabIndex == 0
+                        ? _buildActiveMembershipsView(
+                            isDark: isDark,
+                            surfaceColor: surfaceColor,
+                            surfaceSoft: surfaceSoft,
+                            inkColor: inkColor,
+                            muted: muted,
+                            borderColor: borderColor,
+                          )
+                        : _buildBuyPackageView(
+                            isDark: isDark,
+                            surfaceColor: surfaceColor,
+                            surfaceSoft: surfaceSoft,
+                            inkColor: inkColor,
+                            muted: muted,
+                            borderColor: borderColor,
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
           if (_isResolvingScannedQr)
@@ -682,11 +754,12 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     required Color muted,
     required Color borderColor,
   }) {
-    if (_isMembershipsLoading) {
+    if (_isMembershipsLoading || _isTrainingPackagesLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_membershipErrorMessage != null) {
+    if (_membershipErrorMessage != null &&
+        _trainingPackageErrorMessage != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -700,7 +773,9 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                _membershipErrorMessage!,
+                'Gagal mengambil paket aktif.\n'
+                '$_membershipErrorMessage\n'
+                '$_trainingPackageErrorMessage',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: inkColor,
@@ -710,7 +785,7 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
               ),
               const SizedBox(height: 18),
               ElevatedButton(
-                onPressed: _loadMemberships,
+                onPressed: _refreshActivePackages,
                 child: const Text('Coba Lagi'),
               ),
             ],
@@ -719,7 +794,10 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
       );
     }
 
-    if (_memberships.isEmpty) {
+    if (_memberships.isEmpty &&
+        _trainingPackages.isEmpty &&
+        _membershipErrorMessage == null &&
+        _trainingPackageErrorMessage == null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -758,11 +836,18 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: _loadMemberships,
+      onRefresh: _refreshActivePackages,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
         children: [
-          if (_memberships.length == 1)
+          if (_membershipErrorMessage != null)
+            _ActivePackageInlineError(
+              message: _membershipErrorMessage!,
+              onRetry: _loadMemberships,
+              textColor: inkColor,
+              mutedColor: muted,
+            )
+          else if (_memberships.length == 1)
             _buildMembershipCard(
               _memberships.first,
               isDark: isDark,
@@ -771,10 +856,11 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
               inkColor: inkColor,
               borderColor: borderColor,
             )
-          else
+          else if (_memberships.length > 1)
             SizedBox(
-              height: 236,
+              height: 304,
               child: PageView.builder(
+                key: widget.membershipCardKey,
                 controller: _membershipPageController,
                 itemCount: _memberships.length,
                 onPageChanged: (index) {
@@ -819,6 +905,33 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
               ),
             ),
           ],
+          if (_memberships.isNotEmpty && _trainingPackages.isNotEmpty)
+            const SizedBox(height: 24),
+          if (_trainingPackageErrorMessage != null)
+            _ActivePackageInlineError(
+              message: _trainingPackageErrorMessage!,
+              onRetry: _loadTrainingPackages,
+              textColor: inkColor,
+              mutedColor: muted,
+            )
+          else if (_trainingPackages.isNotEmpty) ...[
+            _ActivePackageSectionHeader(
+              title: 'Package Training Active',
+              subtitle: '${_trainingPackages.length} paket training aktif',
+              textColor: inkColor,
+              mutedColor: muted,
+            ),
+            const SizedBox(height: 12),
+            for (final package in _trainingPackages) ...[
+              _buildTrainingPackageCard(
+                package,
+                isDark: isDark,
+                inkColor: inkColor,
+                borderColor: borderColor,
+              ),
+              const SizedBox(height: 14),
+            ],
+          ],
         ],
       ),
     );
@@ -851,6 +964,8 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     final datePanelColor = isActive
         ? textColor.withValues(alpha: 0.04)
         : Colors.white;
+    final activeBadgeColor = const Color(0xFF24D978);
+    final dayProgress = _buildMembershipDayProgress(membership);
 
     return Material(
       color: Colors.transparent,
@@ -924,20 +1039,28 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
                       Container(
                         margin: const EdgeInsets.only(left: 12),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
+                          horizontal: 11,
+                          vertical: 7,
                         ),
                         decoration: BoxDecoration(
-                          color: AppTheme.success.withValues(alpha: 0.14),
+                          color: AppTheme.primary,
                           borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.primary.withValues(alpha: 0.38),
+                              blurRadius: 14,
+                              spreadRadius: -2,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
                         ),
                         child: const Text(
                           'ACTIVE',
                           style: TextStyle(
-                            color: AppTheme.success,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11,
-                            letterSpacing: 0.4,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ),
@@ -959,6 +1082,18 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
+                if (dayProgress != null) ...[
+                  _MembershipDayProgressBar(
+                    progress: dayProgress.progress,
+                    statusLabel: dayProgress.statusLabel,
+                    remainingLabel: dayProgress.remainingLabel,
+                    textColor: textColor,
+                    mutedText: mutedText,
+                    progressColor: AppTheme.primary,
+                    trackColor: textColor.withValues(alpha: 0.12),
+                  ),
+                  const SizedBox(height: 18),
+                ],
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -1005,6 +1140,220 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     );
   }
 
+  _MembershipDayProgress? _buildMembershipDayProgress(
+    MemberMembership membership,
+  ) {
+    final start = _parseMembershipDate(membership.startDate);
+    final end = _parseMembershipDate(membership.expDate);
+    if (start == null || end == null) {
+      return null;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final startDate = DateTime(start.year, start.month, start.day);
+    final endDate = DateTime(end.year, end.month, end.day);
+    final totalDays = endDate.difference(startDate).inDays + 1;
+    if (totalDays <= 0) {
+      return const _MembershipDayProgress(
+        progress: 1,
+        statusLabel: 'Selesai',
+        remainingLabel: 'Expired',
+      );
+    }
+
+    if (today.isBefore(startDate)) {
+      final daysUntilStart = startDate.difference(today).inDays;
+      return _MembershipDayProgress(
+        progress: 0,
+        statusLabel: 'Menunggu',
+        remainingLabel: 'Mulai dalam $daysUntilStart Hari',
+      );
+    }
+
+    if (today.isAfter(endDate)) {
+      return const _MembershipDayProgress(
+        progress: 1,
+        statusLabel: 'Selesai',
+        remainingLabel: 'Expired',
+      );
+    }
+
+    final elapsedDays = today.difference(startDate).inDays + 1;
+    final remainingDays = endDate.difference(today).inDays + 1;
+    final progress = (elapsedDays / totalDays).clamp(0.0, 1.0).toDouble();
+
+    return _MembershipDayProgress(
+      progress: progress,
+      statusLabel: 'Berjalan: hari ke $elapsedDays dari $totalDays',
+      remainingLabel: 'Sisa $remainingDays Hari',
+    );
+  }
+
+  Widget _buildTrainingPackageCard(
+    MemberTrainingPackage package, {
+    required bool isDark,
+    required Color inkColor,
+    required Color borderColor,
+  }) {
+    final isActive = package.isActive;
+    final textColor = isActive || isDark ? Colors.white : inkColor;
+    final mutedText = isActive || isDark
+        ? Colors.white.withValues(alpha: 0.62)
+        : AppTheme.muted;
+    final activeBadgeColor = const Color(0xFF24D978);
+    final progress = package.totalSession <= 0
+        ? 0.0
+        : (package.remainingSessions / package.totalSession)
+              .clamp(0.0, 1.0)
+              .toDouble();
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: isActive
+            ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF26292F), Color(0xFF121418)],
+              )
+            : null,
+        color: isActive ? null : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isActive ? Colors.white.withValues(alpha: 0.06) : borderColor,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.2)
+                : Colors.black.withValues(alpha: 0.05),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.fitness_center_rounded,
+                  color: isActive ? AppTheme.primary : AppTheme.primaryDark,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      package.packageName.trim().isEmpty
+                          ? '-'
+                          : package.packageName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      package.trainerName.trim().isEmpty
+                          ? 'Trainer belum tersedia'
+                          : package.trainerName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: mutedText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isActive)
+                Container(
+                  margin: const EdgeInsets.only(left: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primary.withValues(alpha: 0.38),
+                        blurRadius: 14,
+                        spreadRadius: -2,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: const Text(
+                    'ACTIVE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 10,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _TrainingSessionTile(
+                  label: 'SISA SESI',
+                  value: package.remainingSessions.toString(),
+                  textColor: textColor,
+                  mutedText: mutedText,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _TrainingSessionTile(
+                  label: 'TOTAL SESI',
+                  value: package.totalSession.toString(),
+                  textColor: textColor,
+                  mutedText: mutedText,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: textColor.withValues(alpha: 0.1),
+              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBuyPackageView({
     required bool isDark,
     required Color surfaceColor,
@@ -1018,7 +1367,7 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     return RefreshIndicator(
       onRefresh: _loadBranches,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
         children: [
           _buildBuyToolbar(
             surfaceColor: surfaceColor,
@@ -1428,13 +1777,12 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
   }
 
   String _formatMembershipDate(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) {
-      return '-';
-    }
-
-    final parsed = DateTime.tryParse(trimmed);
+    final parsed = _parseMembershipDate(raw);
     if (parsed == null) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) {
+        return '-';
+      }
       return trimmed;
     }
 
@@ -1458,6 +1806,27 @@ class _MemberPackagesScreenState extends State<MemberPackagesScreen> {
     final year = parsed.year.toString();
     return '$day $month $year';
   }
+
+  DateTime? _parseMembershipDate(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed.toLowerCase() == 'null') {
+      return null;
+    }
+
+    return DateTime.tryParse(trimmed);
+  }
+}
+
+class _MembershipDayProgress {
+  final double progress;
+  final String statusLabel;
+  final String remainingLabel;
+
+  const _MembershipDayProgress({
+    required this.progress,
+    required this.statusLabel,
+    required this.remainingLabel,
+  });
 }
 
 class _MembershipDateItem extends StatelessWidget {
@@ -1501,6 +1870,202 @@ class _MembershipDateItem extends StatelessWidget {
   }
 }
 
+class _MembershipDayProgressBar extends StatelessWidget {
+  final double progress;
+  final String statusLabel;
+  final String remainingLabel;
+  final Color textColor;
+  final Color mutedText;
+  final Color progressColor;
+  final Color trackColor;
+
+  const _MembershipDayProgressBar({
+    required this.progress,
+    required this.statusLabel,
+    required this.remainingLabel,
+    required this.textColor,
+    required this.mutedText,
+    required this.progressColor,
+    required this.trackColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                statusLabel,
+                style: TextStyle(
+                  color: mutedText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Text(
+              remainingLabel,
+              style: TextStyle(
+                color: textColor.withValues(alpha: 0.88),
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 10,
+            backgroundColor: trackColor,
+            valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivePackageSectionHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Color textColor;
+  final Color mutedColor;
+
+  const _ActivePackageSectionHeader({
+    required this.title,
+    required this.subtitle,
+    required this.textColor,
+    required this.mutedColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: mutedColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivePackageInlineError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  final Color textColor;
+  final Color mutedColor;
+
+  const _ActivePackageInlineError({
+    required this.message,
+    required this.onRetry,
+    required this.textColor,
+    required this.mutedColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: mutedColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded, color: mutedColor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Coba Lagi')),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrainingSessionTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color textColor;
+  final Color mutedText;
+
+  const _TrainingSessionTile({
+    required this.label,
+    required this.value,
+    required this.textColor,
+    required this.mutedText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: textColor.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: mutedText,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _BranchMembershipOptionsScreen extends StatefulWidget {
   final MemberBranch branch;
   final User currentUser;
@@ -1519,17 +2084,24 @@ class _BranchMembershipOptionsScreen extends StatefulWidget {
 
 class _BranchMembershipOptionsScreenState
     extends State<_BranchMembershipOptionsScreen> {
+  static const double _branchHeaderExpandedHeight = 248;
+
   final _membershipService = const MembershipService();
   final _sessionStorage = const SessionStorage();
 
+  int _optionTabIndex = 0;
   bool _isLoading = true;
+  bool _isTrainerPackagesLoading = true;
   String? _errorMessage;
+  String? _trainerPackageErrorMessage;
   List<MemberMembershipOption> _options = const [];
+  List<MemberTrainerPackageOption> _trainerPackages = const [];
 
   @override
   void initState() {
     super.initState();
     _loadOptions();
+    _loadTrainerPackages();
   }
 
   Future<void> _loadOptions() async {
@@ -1572,6 +2144,50 @@ class _BranchMembershipOptionsScreenState
     }
   }
 
+  Future<void> _loadTrainerPackages() async {
+    setState(() {
+      _isTrainerPackagesLoading = true;
+      _trainerPackageErrorMessage = null;
+    });
+
+    try {
+      final session = await _sessionStorage.loadSession();
+      if (session == null || session.token.isEmpty) {
+        throw const MembershipException(
+          'Token tidak tersedia. Silakan login ulang.',
+        );
+      }
+
+      final result = await _membershipService.fetchTrainerPackageOptions(
+        branchId: widget.branch.id,
+        token: session.token,
+        tokenType: session.tokenType,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _trainerPackages = result;
+        _isTrainerPackagesLoading = false;
+      });
+    } on MembershipException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _trainerPackageErrorMessage = error.message;
+        _isTrainerPackagesLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _trainerPackageErrorMessage = 'Gagal mengambil daftar paket trainer.';
+        _isTrainerPackagesLoading = false;
+      });
+    }
+  }
+
+  Future<void> _refreshBranchPackages() async {
+    await Future.wait([_loadOptions(), _loadTrainerPackages()]);
+  }
+
   void _openOptionDetail(MemberMembershipOption option) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -1604,6 +2220,414 @@ class _BranchMembershipOptionsScreenState
             activeName.contains(optionName));
   }
 
+  Widget _buildPackageTypeTabs({
+    required Color surfaceColor,
+    required Color inkSoft,
+  }) {
+    return Container(
+      height: 50,
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tabWidth = (constraints.maxWidth - 5) / 2;
+          return Stack(
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                left: _optionTabIndex == 0 ? 0 : tabWidth + 5,
+                top: 0,
+                bottom: 0,
+                width: tabWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _buildPackageTypeTabButton(
+                      label: 'Paket',
+                      isActive: _optionTabIndex == 0,
+                      inactiveColor: inkSoft,
+                      onTap: () => setState(() => _optionTabIndex = 0),
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: _buildPackageTypeTabButton(
+                      label: 'Trainer',
+                      isActive: _optionTabIndex == 1,
+                      inactiveColor: inkSoft,
+                      onTap: () => setState(() => _optionTabIndex = 1),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPackageTypeTabButton({
+    required String label,
+    required bool isActive,
+    required Color inactiveColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(13),
+      child: Center(
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          style: TextStyle(
+            color: isActive ? Colors.white : inactiveColor,
+            fontWeight: FontWeight.w900,
+            fontSize: 14,
+          ),
+          child: Text(label),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildSelectedPackageChildren({
+    required bool isDark,
+    required Color surfaceColor,
+    required Color surfaceSoft,
+    required Color inkColor,
+    required Color inkSoft,
+    required Color muted,
+    required Color borderColor,
+  }) {
+    if (_optionTabIndex == 1) {
+      return _buildTrainerPackageChildren(
+        isDark: isDark,
+        surfaceColor: surfaceColor,
+        inkColor: inkColor,
+        inkSoft: inkSoft,
+        muted: muted,
+      );
+    }
+
+    return _buildMembershipOptionChildren(
+      isDark: isDark,
+      surfaceColor: surfaceColor,
+      surfaceSoft: surfaceSoft,
+      inkColor: inkColor,
+      inkSoft: inkSoft,
+      muted: muted,
+      borderColor: borderColor,
+    );
+  }
+
+  List<Widget> _buildMembershipOptionChildren({
+    required bool isDark,
+    required Color surfaceColor,
+    required Color surfaceSoft,
+    required Color inkColor,
+    required Color inkSoft,
+    required Color muted,
+    required Color borderColor,
+  }) {
+    if (_isLoading) {
+      return const [
+        Padding(
+          padding: EdgeInsets.only(top: 24),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    if (_errorMessage != null) {
+      return [
+        _BranchPackageErrorCard(
+          title: 'Detail paket belum bisa dimuat',
+          message: _errorMessage!,
+          surfaceColor: surfaceColor,
+          muted: muted,
+          onRetry: _loadOptions,
+        ),
+      ];
+    }
+
+    if (_options.isEmpty) {
+      return [
+        _BranchPackageEmptyCard(
+          message: 'Belum ada paket tersedia di cabang ini.',
+          surfaceColor: surfaceColor,
+          muted: muted,
+        ),
+      ];
+    }
+
+    return _options
+        .map(
+          (option) => Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: _MembershipOptionCard(
+              option: option,
+              isOwned: _isOwnedOption(option),
+              isDark: isDark,
+              surfaceColor: surfaceColor,
+              surfaceSoft: surfaceSoft,
+              inkColor: inkColor,
+              inkSoft: inkSoft,
+              muted: muted,
+              borderColor: borderColor,
+              onSelect: () => _openOptionDetail(option),
+            ),
+          ),
+        )
+        .toList();
+  }
+
+  List<Widget> _buildTrainerPackageChildren({
+    required bool isDark,
+    required Color surfaceColor,
+    required Color inkColor,
+    required Color inkSoft,
+    required Color muted,
+  }) {
+    if (_isTrainerPackagesLoading) {
+      return const [
+        Padding(
+          padding: EdgeInsets.only(top: 24),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    if (_trainerPackageErrorMessage != null) {
+      return [
+        _BranchPackageErrorCard(
+          title: 'Paket trainer belum bisa dimuat',
+          message: _trainerPackageErrorMessage!,
+          surfaceColor: surfaceColor,
+          muted: muted,
+          onRetry: _loadTrainerPackages,
+        ),
+      ];
+    }
+
+    if (_trainerPackages.isEmpty) {
+      return [
+        _BranchPackageEmptyCard(
+          message: 'Belum ada paket trainer tersedia di cabang ini.',
+          surfaceColor: surfaceColor,
+          muted: muted,
+        ),
+      ];
+    }
+
+    return _trainerPackages
+        .map(
+          (package) => Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: _TrainerPackageOptionCard(
+              package: package,
+              isDark: isDark,
+              surfaceColor: surfaceColor,
+              inkColor: inkColor,
+              inkSoft: inkSoft,
+              muted: muted,
+            ),
+          ),
+        )
+        .toList();
+  }
+
+  Widget _buildBranchHeader({
+    required BuildContext context,
+    required Color backgroundColor,
+    required Color surfaceColor,
+    required Color surfaceSoft,
+    required Color inkColor,
+    required Color inkSoft,
+    required Color muted,
+  }) {
+    final topInset = MediaQuery.paddingOf(context).top;
+    final branchAddress = widget.branch.address.trim().isEmpty
+        ? 'Alamat cabang belum tersedia.'
+        : widget.branch.address;
+    final branchCode = widget.branch.branchCode.trim().isEmpty
+        ? 'Kode branch belum tersedia'
+        : widget.branch.branchCode;
+
+    return SliverAppBar(
+      pinned: true,
+      stretch: true,
+      automaticallyImplyLeading: true,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      surfaceTintColor: Colors.transparent,
+      backgroundColor: Colors.transparent,
+      iconTheme: IconThemeData(color: inkColor),
+      expandedHeight: _branchHeaderExpandedHeight,
+      toolbarHeight: kToolbarHeight,
+      titleSpacing: 0,
+      flexibleSpace: LayoutBuilder(
+        builder: (context, constraints) {
+          final currentHeight = constraints.biggest.height;
+          final expandedProgress =
+              ((currentHeight - topInset - kToolbarHeight) /
+                      (_branchHeaderExpandedHeight - kToolbarHeight))
+                  .clamp(0.0, 1.0);
+          final collapseProgress = 1 - expandedProgress;
+          final headerColor = Color.lerp(
+            backgroundColor,
+            surfaceColor,
+            Curves.easeOut.transform(collapseProgress),
+          )!;
+
+          final cardHorizontalInset = lerpDouble(20, 0, collapseProgress)!;
+          final cardTop = lerpDouble(topInset + 60, 0, collapseProgress)!;
+          final cardBottom = lerpDouble(18, 0, collapseProgress)!;
+          final cardRadius = lerpDouble(24, 0, collapseProgress)!;
+          final cardShadowOpacity = (1 - (collapseProgress * 1.2)).clamp(
+            0.0,
+            1.0,
+          );
+
+          final logoSize = lerpDouble(58, 34, collapseProgress)!;
+          final logoLeft = lerpDouble(38, 62, collapseProgress)!;
+          final logoTop = lerpDouble(
+            cardTop + 18,
+            topInset + 11,
+            collapseProgress,
+          )!;
+          final logoRadius = lerpDouble(18, 12, collapseProgress)!;
+          final titleLeft =
+              logoLeft + logoSize + lerpDouble(14, 12, collapseProgress)!;
+          final titleTop = lerpDouble(
+            cardTop + 20,
+            topInset + 15,
+            collapseProgress,
+          )!;
+          final titleFontSize = lerpDouble(19.5, 17.5, collapseProgress)!;
+          final addressOpacity = (1 - (collapseProgress * 1.7)).clamp(0.0, 1.0);
+          final codeOpacity = (1 - (collapseProgress * 2.1)).clamp(0.0, 1.0);
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(color: headerColor),
+              Positioned(
+                left: cardHorizontalInset,
+                right: cardHorizontalInset,
+                top: cardTop,
+                bottom: cardBottom,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: surfaceColor,
+                    borderRadius: BorderRadius.circular(cardRadius),
+                    boxShadow:
+                        cardShadowOpacity == 0 ||
+                            Theme.of(context).brightness == Brightness.dark
+                        ? const []
+                        : [
+                            BoxShadow(
+                              color: Colors.black.withValues(
+                                alpha: 0.06 * cardShadowOpacity,
+                              ),
+                              blurRadius: 20,
+                              spreadRadius: -3,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: logoLeft,
+                top: logoTop,
+                child: Container(
+                  height: logoSize,
+                  width: logoSize,
+                  padding: EdgeInsets.all(lerpDouble(6, 4, collapseProgress)!),
+                  decoration: BoxDecoration(
+                    color: surfaceSoft,
+                    borderRadius: BorderRadius.circular(logoRadius),
+                  ),
+                  child: AppLogo(
+                    size: lerpDouble(46, 28, collapseProgress)!,
+                    variant: AppLogoVariant.iconOnly,
+                  ),
+                ),
+              ),
+              Positioned(
+                left: titleLeft,
+                right: 22,
+                top: titleTop,
+                child: Text(
+                  widget.branch.name,
+                  maxLines: collapseProgress > 0.55 ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: inkColor,
+                    fontSize: titleFontSize,
+                    fontWeight: FontWeight.w900,
+                    height: 1.15,
+                  ),
+                ),
+              ),
+              Positioned(
+                left: titleLeft,
+                right: 24,
+                top: titleTop + lerpDouble(34, 26, collapseProgress)!,
+                child: Opacity(
+                  opacity: addressOpacity,
+                  child: Transform.translate(
+                    offset: Offset(0, 8 * collapseProgress),
+                    child: Text(
+                      branchAddress,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: muted,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: titleLeft,
+                right: 24,
+                top: titleTop + lerpDouble(84, 42, collapseProgress)!,
+                child: Opacity(
+                  opacity: codeOpacity,
+                  child: Text(
+                    branchCode,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: inkSoft,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1624,147 +2648,310 @@ class _BranchMembershipOptionsScreenState
 
     return Scaffold(
       backgroundColor: backgroundColor,
-      appBar: AppBar(
-        backgroundColor: backgroundColor,
-        titleSpacing: 0,
-        title: Text(
-          widget.branch.name,
-          style: TextStyle(color: inkColor, fontWeight: FontWeight.w800),
-        ),
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadOptions,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 58,
-                    width: 58,
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: surfaceSoft,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: const AppLogo(
-                      size: 46,
-                      variant: AppLogoVariant.iconOnly,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.branch.name,
-                          style: TextStyle(
-                            color: inkColor,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.branch.address,
-                          style: TextStyle(
-                            color: muted,
-                            height: 1.4,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          widget.branch.branchCode,
-                          style: TextStyle(
-                            color: inkSoft,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+      body: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+          if (velocity < -300 && _optionTabIndex == 0) {
+            setState(() => _optionTabIndex = 1);
+          } else if (velocity > 300 && _optionTabIndex == 1) {
+            setState(() => _optionTabIndex = 0);
+          }
+        },
+        child: RefreshIndicator(
+          onRefresh: _refreshBranchPackages,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
             ),
-            const SizedBox(height: 18),
-            if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.only(top: 24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_errorMessage != null)
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Detail paket belum bisa dimuat',
-                      style: TextStyle(
-                        color: AppTheme.primary,
-                        fontWeight: FontWeight.w900,
-                      ),
+            slivers: [
+              _buildBranchHeader(
+                context: context,
+                backgroundColor: backgroundColor,
+                surfaceColor: surfaceColor,
+                surfaceSoft: surfaceSoft,
+                inkColor: inkColor,
+                inkSoft: inkSoft,
+                muted: muted,
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _buildPackageTypeTabs(
+                      surfaceColor: surfaceColor,
+                      inkSoft: inkSoft,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _errorMessage!,
-                      style: TextStyle(color: muted, height: 1.45),
+                    const SizedBox(height: 16),
+                    ..._buildSelectedPackageChildren(
+                      isDark: isDark,
+                      surfaceColor: surfaceColor,
+                      surfaceSoft: surfaceSoft,
+                      inkColor: inkColor,
+                      inkSoft: inkSoft,
+                      muted: muted,
+                      borderColor: borderColor,
                     ),
-                    const SizedBox(height: 14),
-                    OutlinedButton(
-                      onPressed: _loadOptions,
-                      child: const Text('Coba Lagi'),
-                    ),
-                  ],
-                ),
-              )
-            else if (_options.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: Text(
-                  'Belum ada paket tersedia di cabang ini.',
-                  style: TextStyle(color: muted, fontWeight: FontWeight.w600),
-                ),
-              )
-            else
-              ..._options.map(
-                (option) => Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: _MembershipOptionCard(
-                    option: option,
-                    isOwned: _isOwnedOption(option),
-                    isDark: isDark,
-                    surfaceColor: surfaceColor,
-                    surfaceSoft: surfaceSoft,
-                    inkColor: inkColor,
-                    inkSoft: inkSoft,
-                    muted: muted,
-                    borderColor: borderColor,
-                    onSelect: () => _openOptionDetail(option),
-                  ),
+                  ]),
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
+  }
+}
+
+class _BranchPackageErrorCard extends StatelessWidget {
+  final String title;
+  final String message;
+  final Color surfaceColor;
+  final Color muted;
+  final VoidCallback onRetry;
+
+  const _BranchPackageErrorCard({
+    required this.title,
+    required this.message,
+    required this.surfaceColor,
+    required this.muted,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppTheme.primary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(message, style: TextStyle(color: muted, height: 1.45)),
+          const SizedBox(height: 14),
+          OutlinedButton(onPressed: onRetry, child: const Text('Coba Lagi')),
+        ],
+      ),
+    );
+  }
+}
+
+class _BranchPackageEmptyCard extends StatelessWidget {
+  final String message;
+  final Color surfaceColor;
+  final Color muted;
+
+  const _BranchPackageEmptyCard({
+    required this.message,
+    required this.surfaceColor,
+    required this.muted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Text(
+        message,
+        style: TextStyle(color: muted, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+class _TrainerPackageOptionCard extends StatelessWidget {
+  final MemberTrainerPackageOption package;
+  final bool isDark;
+  final Color surfaceColor;
+  final Color inkColor;
+  final Color inkSoft;
+  final Color muted;
+
+  const _TrainerPackageOptionCard({
+    required this.package,
+    required this.isDark,
+    required this.surfaceColor,
+    required this.inkColor,
+    required this.inkSoft,
+    required this.muted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final badgeBackground = isDark
+        ? const Color(0xFF262A31)
+        : const Color(0xFFF0F3F8);
+    final actionBackground = isDark
+        ? AppTheme.primary.withValues(alpha: 0.14)
+        : const Color(0xFFFFECEC);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: isDark
+            ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF23252B), Color(0xFF1A1C21)],
+              )
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFFFFFFF), Color(0xFFF5F7FB)],
+              ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.24)
+                : Colors.black.withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: badgeBackground,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  package.durationDays > 0
+                      ? '${package.durationDays} Hari'
+                      : 'Trainer',
+                  style: TextStyle(
+                    color: inkSoft,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              if (package.isActive) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.success.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'AKTIF',
+                    style: TextStyle(
+                      color: AppTheme.success,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            package.name.trim().isEmpty ? '-' : package.name,
+            style: TextStyle(
+              color: inkColor,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          if (package.description.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              package.description,
+              style: TextStyle(
+                color: muted,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Text(
+            _formatCurrency(package.price),
+            style: const TextStyle(
+              color: AppTheme.primary,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _OptionFeatureRow(
+            icon: Icons.fitness_center_rounded,
+            text: 'Total sesi ${package.totalSession} kali',
+            color: inkSoft,
+          ),
+          _OptionFeatureRow(
+            icon: Icons.calendar_month_rounded,
+            text: 'Durasi aktif ${package.durationDays} hari',
+            color: inkSoft,
+          ),
+          if (package.isActive) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  TopNotification.show(
+                    context,
+                    message: 'Pembelian paket trainer belum tersedia.',
+                    type: TopNotificationType.info,
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: actionBackground,
+                  foregroundColor: AppTheme.primary,
+                  elevation: 0,
+                  shadowColor: Colors.transparent,
+                ),
+                child: const Text('Beli Trainer'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatCurrency(int value) {
+    final raw = value.toString();
+    final chars = raw.split('').reversed.toList();
+    final buffer = StringBuffer();
+
+    for (var i = 0; i < chars.length; i++) {
+      if (i > 0 && i % 3 == 0) {
+        buffer.write('.');
+      }
+      buffer.write(chars[i]);
+    }
+
+    return 'Rp ${buffer.toString().split('').reversed.join()}';
   }
 }
 
@@ -1972,95 +3159,13 @@ class _MembershipOptionCard extends StatelessWidget {
   }
 
   Future<void> _showSelectConfirmation(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showModernModalDialog(
       context: context,
-      builder: (dialogContext) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF191B20) : Colors.white,
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.26),
-                  blurRadius: 24,
-                  offset: const Offset(0, 14),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 66,
-                  height: 66,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppTheme.primary.withValues(alpha: 0.14),
-                  ),
-                  child: const Icon(
-                    Icons.shopping_bag_rounded,
-                    color: AppTheme.primary,
-                    size: 32,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Beli paket ini?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: inkColor,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  option.name,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: inkColor,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '${_formatCurrency(option.price)} • ${option.durationDays} hari',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: muted,
-                    fontWeight: FontWeight.w600,
-                    height: 1.45,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(false),
-                        child: const Text('Batal'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(true),
-                        child: const Text('Beli'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      title: 'Beli paket ini?',
+      content:
+          '${option.name}\n${_formatCurrency(option.price)} • ${option.durationDays} hari',
+      primaryButtonText: 'Beli',
+      icon: Icons.shopping_bag_rounded,
     );
 
     if (confirmed == true && context.mounted) {
@@ -2514,34 +3619,21 @@ class _MembershipOptionDetailScreenState
 
     if (detail == null || memberId == null || membershipId == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Data pembelian membership belum lengkap.'),
-        ),
+      TopNotification.show(
+        context,
+        message: 'Data pembelian membership belum lengkap.',
+        type: TopNotificationType.error,
       );
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showModernModalDialog(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Konfirmasi Pembelian'),
-          content: Text(
-            'Lanjut beli paket ${detail.name} seharga ${_formatCurrency(detail.price)}?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Beli'),
-            ),
-          ],
-        );
-      },
+      title: 'Konfirmasi Pembelian',
+      content:
+          'Lanjut beli paket ${detail.name} seharga ${_formatCurrency(detail.price)}?',
+      primaryButtonText: 'Beli',
+      icon: Icons.shopping_bag_rounded,
     );
 
     if (confirmed != true || !mounted) {
@@ -2594,9 +3686,7 @@ class _MembershipOptionDetailScreenState
       await _showPurchaseFailureDialog(error.message);
     } catch (_) {
       if (!mounted) return;
-      await _showPurchaseFailureDialog(
-        'Gagal memproses pembelian membership.',
-      );
+      await _showPurchaseFailureDialog('Gagal memproses pembelian membership.');
     } finally {
       if (mounted) {
         setState(() {
@@ -3016,10 +4106,7 @@ class _PurchaseInfoRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(
-                color: muted,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: muted, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(width: 12),
@@ -3093,15 +4180,23 @@ class _AnimatedBranchArrowButtonState
               borderRadius: BorderRadius.circular(14),
             ),
           ),
-          child: AnimatedSlide(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            offset: isActive ? const Offset(0.08, -0.08) : Offset.zero,
-            child: AnimatedRotation(
+          child: Center(
+            child: AnimatedScale(
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOutCubic,
-              turns: isActive ? -0.08 : 0,
-              child: const Icon(Icons.arrow_forward_rounded, size: 20),
+              scale: isActive ? 1.05 : 1,
+              child: AnimatedRotation(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.center,
+                turns: isActive ? -0.08 : 0,
+                child: const SizedBox.square(
+                  dimension: 20,
+                  child: Center(
+                    child: Icon(Icons.arrow_forward_rounded, size: 20),
+                  ),
+                ),
+              ),
             ),
           ),
         ),

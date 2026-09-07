@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../services/qr_decoder_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/top_notification.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -126,9 +127,11 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         _isProcessingResult = false;
       });
 
-      ScaffoldMessenger.of(
+      TopNotification.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+        message: error.message,
+        type: TopNotificationType.error,
+      );
     } catch (_) {
       if (!mounted) {
         return;
@@ -138,10 +141,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         _isProcessingResult = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gagal membuka galeri atau membaca QR dari gambar.'),
-        ),
+      TopNotification.show(
+        context,
+        message: 'Gagal membuka galeri atau membaca QR dari gambar.',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -247,11 +250,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                             ),
                           ],
                         ),
-	                        child: Stack(
-	                          children: [
-	                            _ScannerBeam(size: frameSize),
-	                          ],
-	                        ),
+                        child: Stack(children: [_ScannerBeam(size: frameSize)]),
                       ),
                     ),
                   ],
@@ -472,10 +471,7 @@ class _ScannerBeamState extends State<_ScannerBeam>
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     )..repeat(reverse: true);
-    _animation = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeInOut,
-    );
+    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
   }
 
   @override

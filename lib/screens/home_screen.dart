@@ -13,6 +13,7 @@ import 'profile_settings_screen.dart';
 import 'qr_scanner_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/top_notification.dart';
 
 class HomeScreen extends StatefulWidget {
   final User? currentUser;
@@ -129,8 +130,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage =
-            'Gagal mengambil data gym. ${ApiConfig.serverHint}';
+        _errorMessage = 'Gagal mengambil data gym. ${ApiConfig.serverHint}';
       });
     }
   }
@@ -181,13 +181,17 @@ class _HomeScreenState extends State<HomeScreen>
       await _showJoinSuccessDialog(result.message, result.gym);
     } on AuthException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
+      TopNotification.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+        message: error.message,
+        type: TopNotificationType.error,
+      );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Gagal mengirim join request ke server.')),
+      TopNotification.show(
+        context,
+        message: 'Gagal mengirim join request ke server.',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -419,12 +423,11 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
+      TopNotification.show(
+        context,
+        message:
             '${matchedGym.name} sudah di-approve. Membuka halaman detail...',
-          ),
-        ),
+        type: TopNotificationType.success,
       );
       await _openGymDetailsPage(matchedGym, showResultDialog: false);
     } catch (_) {
@@ -555,11 +558,15 @@ class _HomeScreenState extends State<HomeScreen>
                                 decoration: BoxDecoration(
                                   color: isActive
                                       ? AppTheme.success.withValues(alpha: 0.16)
-                                      : AppTheme.primary.withValues(alpha: 0.10),
+                                      : AppTheme.primary.withValues(
+                                          alpha: 0.10,
+                                        ),
                                   borderRadius: BorderRadius.circular(18),
                                 ),
                                 child: Text(
-                                  isActive ? 'Active membership' : gym.statusLabel,
+                                  isActive
+                                      ? 'Active membership'
+                                      : gym.statusLabel,
                                   style: TextStyle(
                                     color: isActive
                                         ? AppTheme.success
@@ -629,22 +636,24 @@ class _HomeScreenState extends State<HomeScreen>
                             width: double.infinity,
                             child: ElevatedButton(
                               style: ButtonStyle(
-                                backgroundColor: WidgetStateProperty.resolveWith((
-                                  states,
-                                ) {
-                                  if (states.contains(WidgetState.disabled)) {
-                                    return const Color(0xFFD2D2D2);
-                                  }
-                                  return AppTheme.primary;
-                                }),
-                                foregroundColor: WidgetStateProperty.resolveWith((
-                                  states,
-                                ) {
-                                  if (states.contains(WidgetState.disabled)) {
-                                    return const Color(0xFF8F8F8F);
-                                  }
-                                  return Colors.white;
-                                }),
+                                backgroundColor:
+                                    WidgetStateProperty.resolveWith((states) {
+                                      if (states.contains(
+                                        WidgetState.disabled,
+                                      )) {
+                                        return const Color(0xFFD2D2D2);
+                                      }
+                                      return AppTheme.primary;
+                                    }),
+                                foregroundColor:
+                                    WidgetStateProperty.resolveWith((states) {
+                                      if (states.contains(
+                                        WidgetState.disabled,
+                                      )) {
+                                        return const Color(0xFF8F8F8F);
+                                      }
+                                      return Colors.white;
+                                    }),
                                 overlayColor: WidgetStateProperty.resolveWith((
                                   states,
                                 ) {
@@ -663,7 +672,9 @@ class _HomeScreenState extends State<HomeScreen>
                                             await _showJoinConfirmationDialog(
                                               gym,
                                             );
-                                        if (!confirmed || !mounted) {
+                                        if (!confirmed ||
+                                            !mounted ||
+                                            !sheetContext.mounted) {
                                           return;
                                         }
                                         Navigator.of(sheetContext).pop();
@@ -712,10 +723,10 @@ class _HomeScreenState extends State<HomeScreen>
         await _showQrResultSheet(rawValue, sourceLabel: 'Kamera');
         break;
       case CameraPermissionResult.denied:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Izin kamera dibutuhkan untuk scan QR langsung.'),
-          ),
+        TopNotification.show(
+          context,
+          message: 'Izin kamera dibutuhkan untuk scan QR langsung.',
+          type: TopNotificationType.error,
         );
         break;
       case CameraPermissionResult.permanentlyDenied:
@@ -1026,9 +1037,7 @@ class _HomeScreenState extends State<HomeScreen>
         child: Container(
           constraints: const BoxConstraints(minHeight: 56, maxWidth: 210),
           padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-          ),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(22)),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1421,9 +1430,7 @@ class _HomeScreenState extends State<HomeScreen>
                         color: Colors.white.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: const Center(
-                        child: AppLogo(size: 30),
-                      ),
+                      child: const Center(child: AppLogo(size: 30)),
                     ),
                     const Spacer(),
                     Container(
@@ -1585,55 +1592,49 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildSheetDetailsCard({
-    required Gym gym,
-  }) {
-    final details = <({
-      IconData icon,
-      String label,
-      String value,
-      bool isMultiline,
-    })>[
-      (
-        icon: Icons.badge_outlined,
-        label: 'Gym Code',
-        value: gym.gymCode,
-        isMultiline: false,
-      ),
-      (
-        icon: Icons.pin_drop_outlined,
-        label: 'Status',
-        value: gym.statusLabel,
-        isMultiline: false,
-      ),
-      (
-        icon: Icons.location_city_outlined,
-        label: 'Address',
-        value: gym.address,
-        isMultiline: true,
-      ),
-      if (gym.requestedAt != null)
-        (
-          icon: Icons.schedule_outlined,
-          label: 'Requested At',
-          value: gym.requestedAt!,
-          isMultiline: false,
-        ),
-      if (gym.approvedAt != null)
-        (
-          icon: Icons.verified_outlined,
-          label: 'Approved At',
-          value: gym.approvedAt!,
-          isMultiline: false,
-        ),
-      if (gym.joinedAt != null)
-        (
-          icon: Icons.event_available_outlined,
-          label: 'Joined At',
-          value: gym.joinedAt!,
-          isMultiline: false,
-        ),
-    ];
+  Widget _buildSheetDetailsCard({required Gym gym}) {
+    final details =
+        <({IconData icon, String label, String value, bool isMultiline})>[
+          (
+            icon: Icons.badge_outlined,
+            label: 'Gym Code',
+            value: gym.gymCode,
+            isMultiline: false,
+          ),
+          (
+            icon: Icons.pin_drop_outlined,
+            label: 'Status',
+            value: gym.statusLabel,
+            isMultiline: false,
+          ),
+          (
+            icon: Icons.location_city_outlined,
+            label: 'Address',
+            value: gym.address,
+            isMultiline: true,
+          ),
+          if (gym.requestedAt != null)
+            (
+              icon: Icons.schedule_outlined,
+              label: 'Requested At',
+              value: gym.requestedAt!,
+              isMultiline: false,
+            ),
+          if (gym.approvedAt != null)
+            (
+              icon: Icons.verified_outlined,
+              label: 'Approved At',
+              value: gym.approvedAt!,
+              isMultiline: false,
+            ),
+          if (gym.joinedAt != null)
+            (
+              icon: Icons.event_available_outlined,
+              label: 'Joined At',
+              value: gym.joinedAt!,
+              isMultiline: false,
+            ),
+        ];
 
     return Container(
       width: double.infinity,
@@ -1652,10 +1653,7 @@ class _HomeScreenState extends State<HomeScreen>
               isMultiline: details[index].isMultiline,
             ),
             if (index != details.length - 1)
-              Divider(
-                height: 1,
-                color: AppTheme.muted.withValues(alpha: 0.14),
-              ),
+              Divider(height: 1, color: AppTheme.muted.withValues(alpha: 0.14)),
           ],
         ],
       ),

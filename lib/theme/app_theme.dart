@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   static const Color primary = Color(0xFFE53935);
@@ -36,7 +37,7 @@ class AppTheme {
       scaffoldBackgroundColor: surface,
       iconTheme: const IconThemeData(color: ink),
       primaryIconTheme: const IconThemeData(color: ink),
-      textTheme: ThemeData.light().textTheme.apply(
+      textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme).apply(
         bodyColor: ink,
         displayColor: ink,
       ),
@@ -133,18 +134,18 @@ class AppTheme {
         ).copyWith(
           primary: primary,
           secondary: accent,
-          surface: const Color(0xFF1C1C1C),
-          onSurface: const Color(0xFFF2F2F2),
-          onSurfaceVariant: const Color(0xFFB7B7B7),
+          surface: const Color(0xFF171A1F), // Modern sleek surface
+          onSurface: const Color(0xFFF0F3F6), // Soft white for contrast
+          onSurfaceVariant: const Color(0xFF8B95A5), // Softer muted text
         );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: const Color(0xFF121212),
+      scaffoldBackgroundColor: const Color(0xFF0D0F12), // Slate dark background
       iconTheme: const IconThemeData(color: Colors.white),
       primaryIconTheme: const IconThemeData(color: Colors.white),
-      textTheme: ThemeData.dark().textTheme.apply(
+      textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).apply(
         bodyColor: Colors.white,
         displayColor: Colors.white,
       ),
@@ -169,19 +170,19 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFF1C1C1C),
+        fillColor: const Color(0xFF171A1F),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 18,
           vertical: 18,
         ),
-        labelStyle: const TextStyle(color: Color(0xFFB7B7B7)),
+        labelStyle: const TextStyle(color: Color(0xFF8B95A5)),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+          borderSide: const BorderSide(color: Color(0xFF262A33)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
@@ -226,7 +227,7 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF2A2A2A),
+        backgroundColor: const Color(0xFF262A33),
         contentTextStyle: const TextStyle(color: Colors.white),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),

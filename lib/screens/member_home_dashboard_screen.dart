@@ -1,23 +1,32 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/member_dashboard.dart';
+import '../models/member_visit_history.dart';
 import '../models/user.dart';
 import '../services/member_dashboard_service.dart';
+import '../services/member_visit_history_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/modern_modal_dialog.dart';
+import '../widgets/top_notification.dart';
 import 'auth_screen.dart';
+import 'member_schedule_screen.dart';
+import 'member_transactions_screen.dart';
 import 'visit_history_screen.dart';
 
 class MemberHomeDashboardScreen extends StatefulWidget {
   final User user;
   final ValueChanged<int> onNavigate;
+  final GlobalKey? tourHighlightKey;
 
   const MemberHomeDashboardScreen({
     super.key,
     required this.user,
     required this.onNavigate,
+    this.tourHighlightKey,
   });
 
   @override
@@ -27,14 +36,23 @@ class MemberHomeDashboardScreen extends StatefulWidget {
 
 class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
     with TickerProviderStateMixin {
+  static const double _featuredCardRadius = 15;
+  static const Color _softSectionSurface = Color(0xFFF7F7FB);
+  static const Color _softSectionBorder = Color(0xFFE7E8EF);
+  static const Color _softRoseSurface = Color(0xFFFFF4F6);
+  static const Color _softRoseBorder = Color(0xFFF3D8DE);
+
   final _dashboardService = const MemberDashboardService();
+  final _visitHistoryService = const MemberVisitHistoryService();
   final _sessionStorage = const SessionStorage();
 
   late final AnimationController _entranceController;
   late String _profileImageRevision;
 
   MemberDashboard? _dashboard;
+  List<MemberVisitHistoryItem> _recentVisits = const [];
   bool _isLoading = true;
+  bool _isPromoVisible = true;
   String? _errorMessage;
 
   @override
@@ -171,6 +189,17 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
         token: session.token,
         tokenType: session.tokenType,
       );
+      var recentVisits = const <MemberVisitHistoryItem>[];
+      try {
+        final visitHistory = await _visitHistoryService.fetchVisitHistory(
+          token: session.token,
+          tokenType: session.tokenType,
+          limit: 5,
+        );
+        recentVisits = visitHistory.visits;
+      } catch (_) {
+        recentVisits = const <MemberVisitHistoryItem>[];
+      }
 
       if (!mounted) {
         return;
@@ -178,6 +207,7 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
 
       setState(() {
         _dashboard = dashboard;
+        _recentVisits = recentVisits;
         _isLoading = false;
         _errorMessage = null;
       });
@@ -237,7 +267,10 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
                         const SizedBox(height: 20),
                         _buildEntranceItem(
                           order: 2,
-                          child: _buildMembershipCard(),
+                          child: SizedBox(
+                            key: widget.tourHighlightKey,
+                            child: _buildMembershipCard(),
+                          ),
                         ),
                       ],
                     ),
@@ -265,12 +298,12 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
                       order: 3,
                       child: _buildQuickActions(context),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 28),
                     _buildEntranceItem(
                       order: 4,
                       child: _buildPromoCard(context),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 48),
                     _buildEntranceItem(
                       order: 5,
                       child: _buildRecentVisitCard(context),
@@ -450,7 +483,7 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(_featuredCardRadius),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -579,121 +612,228 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
   Widget _buildQuickActions(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final darkTile = const Color(0xFF1E1E1E);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: _HomeActionTile(
-            icon: Icons.calendar_month_outlined,
-            iconColor: const Color(0xFF2962FF),
-            backgroundColor: isDark ? darkTile : const Color(0xFFEAF1FF),
-            label: 'Jadwal',
-            onTap: () => _showComingSoon(context, 'Jadwal'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _HomeActionTile(
-            icon: Icons.badge_outlined,
-            iconColor: const Color(0xFFFF6D00),
-            backgroundColor: isDark ? darkTile : const Color(0xFFFFF2E8),
-            label: 'Trainer',
-            onTap: () => _showComingSoon(context, 'Trainer'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _HomeActionTile(
-            icon: Icons.history_rounded,
-            iconColor: const Color(0xFF7B1FFF),
-            backgroundColor: isDark ? darkTile : const Color(0xFFF3EAFF),
-            label: 'Riwayat',
-            onTap: () => widget.onNavigate(1),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _HomeActionTile(
-            icon: Icons.credit_card_rounded,
-            iconColor: const Color(0xFF009966),
-            backgroundColor: isDark ? darkTile : const Color(0xFFE6FAF1),
-            label: 'Tagihan',
-            onTap: () => _showComingSoon(context, 'Tagihan'),
-          ),
-        ),
-      ],
+    final tileSurface = isDark ? const Color(0xFF1C1E22) : _softSectionSurface;
+    final tileBorder = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : _softSectionBorder;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tileWidth = ((constraints.maxWidth - 36) / 4).clamp(64.0, 78.0);
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _HomeActionTile(
+              width: tileWidth,
+              icon: Icons.calendar_month_outlined,
+              iconColor: const Color(0xFF3D6BFF),
+              backgroundColor: tileSurface,
+              borderColor: tileBorder,
+              label: 'Jadwal',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MemberScheduleScreen(user: widget.user),
+                  ),
+                );
+              },
+            ),
+            _HomeActionTile(
+              width: tileWidth,
+              icon: Icons.badge_outlined,
+              iconColor: const Color(0xFFF07A32),
+              backgroundColor: tileSurface,
+              borderColor: tileBorder,
+              label: 'Trainer',
+              onTap: () => _showComingSoon(context, 'Trainer'),
+            ),
+            _HomeActionTile(
+              width: tileWidth,
+              icon: Icons.history_rounded,
+              iconColor: const Color(0xFF8C45F6),
+              backgroundColor: tileSurface,
+              borderColor: tileBorder,
+              label: 'Riwayat',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const VisitHistoryScreen()),
+                );
+              },
+            ),
+            _HomeActionTile(
+              width: tileWidth,
+              icon: Icons.receipt_long_rounded,
+              iconColor: const Color(0xFF1DAB74),
+              backgroundColor: tileSurface,
+              borderColor: tileBorder,
+              label: 'Transaksi',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const MemberTransactionsScreen(),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildPromoCard(BuildContext context) {
+    if (!_isPromoVisible) return const SizedBox.shrink();
+
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final cardColor = isDark
-        ? const Color(0xFF17242B)
-        : const Color(0xFFEAF4FF);
     final borderColor = isDark
-        ? const Color(0xFF27424E)
-        : const Color(0xFFC8DCF7);
-    final accentColor = isDark
-        ? const Color(0xFF7CC7FF)
-        : const Color(0xFF2563EB);
+        ? AppTheme.primary.withValues(alpha: 0.20)
+        : _softRoseBorder;
+    final accentColor = isDark ? const Color(0xFFFFA0A8) : AppTheme.primary;
     final bodyColor = isDark
-        ? const Color(0xFFB6C4CD)
-        : const Color(0xFF4B647C);
+        ? const Color(0xFFD7BDC2)
+        : const Color(0xFF6D5C61);
+    final accentSurface = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.white.withValues(alpha: 0.86);
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => widget.onNavigate(1),
-        borderRadius: BorderRadius.circular(26),
-        child: Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(minHeight: 122),
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: borderColor),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Ajak Teman, Dapat Diskon!',
-                      style: TextStyle(
-                        color: accentColor,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        height: 1.25,
+    return Dismissible(
+      key: const Key('dashboard-promo-card'),
+      direction: DismissDirection.horizontal,
+      onDismissed: (_) {
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _isPromoVisible = false;
+        });
+      },
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => widget.onNavigate(1),
+          borderRadius: BorderRadius.circular(_featuredCardRadius),
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 122),
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              gradient: isDark
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF2A1C22), Color(0xFF1E1418)],
+                    )
+                  : const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [_softRoseSurface, Color(0xFFFFFBFC)],
+                    ),
+              borderRadius: BorderRadius.circular(_featuredCardRadius),
+              border: Border.all(color: borderColor),
+              boxShadow: [
+                if (!isDark)
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 18,
+                    spreadRadius: -4,
+                    offset: const Offset(0, 12),
+                  ),
+              ],
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  top: -14,
+                  right: -10,
+                  child: Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: accentColor.withValues(
+                        alpha: isDark ? 0.10 : 0.08,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Dapatkan potongan 20% untuk bulan depan.',
-                      style: TextStyle(
-                        color: bodyColor,
-                        fontSize: 13,
-                        height: 1.45,
-                        fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentSurface,
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: accentColor.withValues(
+                                  alpha: isDark ? 0.16 : 0.10,
+                                ),
+                              ),
+                            ),
+                            child: Text(
+                              'Benefit member',
+                              style: TextStyle(
+                                color: accentColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Ajak Teman, Dapat Diskon!',
+                            style: TextStyle(
+                              color: accentColor,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              height: 1.25,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Dapatkan potongan 20% untuk bulan depan.',
+                            style: TextStyle(
+                              color: bodyColor,
+                              fontSize: 13,
+                              height: 1.45,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: accentSurface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: accentColor.withValues(
+                            alpha: isDark ? 0.18 : 0.10,
+                          ),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.chevron_right_rounded,
+                        color: accentColor.withValues(alpha: 0.92),
+                        size: 28,
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: accentColor.withValues(alpha: 0.92),
-                size: 34,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -706,10 +846,7 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
     final onSurface = scheme.onSurface;
     final onSurfaceVariant = scheme.onSurfaceVariant;
     final isDark = theme.brightness == Brightness.dark;
-    final visits =
-        (_dashboard?.lastCheckins ?? const <MemberDashboardCheckin>[])
-            .take(5)
-            .toList(growable: false);
+    final visits = _recentVisits.take(5).toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -817,7 +954,7 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
 
   Widget _buildVisitTimelineItem(
     BuildContext context, {
-    required MemberDashboardCheckin visit,
+    required MemberVisitHistoryItem visit,
     required int index,
     required bool isFirst,
     required bool isLast,
@@ -833,18 +970,15 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
     final normalizedStatus = visit.status.trim().toUpperCase();
     final isCheckin = normalizedStatus == 'OPEN';
     final lineColor = isDark
-        ? Colors.white.withValues(alpha: 0.12)
-        : Colors.black.withValues(alpha: 0.08);
+        ? Colors.white.withValues(alpha: 0.10)
+        : const Color(0xFFECE4E7);
     final checkpointColor = isCheckin ? AppTheme.primary : AppTheme.success;
-    final badgeBackground = isCheckin
-        ? (isDark ? const Color(0xFF3D1E1E) : const Color(0xFFFFEBEB))
-        : (isDark ? const Color(0xFF183226) : const Color(0xFFEAF8F1));
-    final badgeForeground = isCheckin
-        ? (isDark ? const Color(0xFFFFB7B7) : AppTheme.primaryDark)
-        : (isDark ? const Color(0xFF91E1B7) : const Color(0xFF167C4F));
     final checkpointGlow = isDark
         ? checkpointColor.withValues(alpha: 0.22)
         : checkpointColor.withValues(alpha: 0.12);
+    final visitCardBorder = isDark
+        ? Colors.white.withValues(alpha: 0.04)
+        : const Color(0xFFF0E7EA);
     final start = (0.54 + (index * 0.05)).clamp(0.0, 0.9).toDouble();
     final end = (start + 0.22).clamp(0.0, 1.0).toDouble();
 
@@ -869,13 +1003,13 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
-              width: 30,
+              width: 22,
               child: Stack(
-                alignment: Alignment.topCenter,
                 children: [
                   Positioned(
-                    top: isFirst ? 26 : 0,
-                    bottom: isLast ? 26 : 0,
+                    left: 7,
+                    top: isFirst ? 48 : 0,
+                    bottom: isLast ? 48 : 0,
                     child: Container(
                       width: 2,
                       decoration: BoxDecoration(
@@ -885,7 +1019,8 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
                     ),
                   ),
                   Positioned(
-                    top: 22,
+                    left: 0,
+                    top: 40,
                     child: Container(
                       width: 16,
                       height: 16,
@@ -911,77 +1046,77 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
                 ],
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 4),
             Expanded(
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF171717) : Colors.white,
-                  borderRadius: BorderRadius.circular(24),
+                  color: isDark
+                      ? const Color(0xFF171717)
+                      : const Color(0xFFFFFCFC),
+                  borderRadius: BorderRadius.circular(_featuredCardRadius),
+                  border: Border.all(color: visitCardBorder),
                   boxShadow: isDark
                       ? const []
                       : [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
+                            color: Colors.black.withValues(alpha: 0.035),
                             blurRadius: 18,
+                            spreadRadius: -5,
                             offset: const Offset(0, 10),
                           ),
                         ],
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            branchName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: onSurface,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatDateTimeLabel(visit.checkinAt),
-                            style: TextStyle(
-                              color: onSurfaceVariant.withValues(alpha: 0.95),
-                              fontSize: 12.5,
-                              height: 1.45,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            statusLabel,
-                            style: TextStyle(
-                              color: onSurfaceVariant.withValues(alpha: 0.88),
-                              fontSize: 12.5,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
+                    Text(
+                      branchName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: onSurface,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
+                    const SizedBox(height: 2),
+                    Text(
+                      _formatDateTimeLabel(visit.scannedAt),
+                      style: TextStyle(
+                        color: onSurfaceVariant.withValues(alpha: 0.95),
+                        fontSize: 12,
                       ),
-                      decoration: BoxDecoration(
-                        color: badgeBackground,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        statusBadge,
-                        style: TextStyle(
-                          color: badgeForeground,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
+                    ),
+                    const Spacer(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          statusLabel,
+                          style: TextStyle(
+                            color: onSurfaceVariant.withValues(alpha: 0.88),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
+                        Text(
+                          statusBadge,
+                          style: TextStyle(
+                            color: isCheckin
+                                ? (isDark
+                                      ? const Color(0xFF91E1B7)
+                                      : const Color(0xFF167C4F))
+                                : (isDark
+                                      ? Colors.white.withValues(alpha: 0.72)
+                                      : onSurfaceVariant.withValues(
+                                          alpha: 0.85,
+                                        )),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1065,96 +1200,20 @@ class _MemberHomeDashboardScreenState extends State<MemberHomeDashboardScreen>
   }
 
   void _showComingSoon(BuildContext context, String title) {
-    ScaffoldMessenger.of(
+    TopNotification.show(
       context,
-    ).showSnackBar(SnackBar(content: Text('$title masih disiapkan.')));
+      message: '$title masih disiapkan.',
+      type: TopNotificationType.info,
+    );
   }
 
   Future<void> _handleLogout(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showModernModalDialog(
       context: context,
-      builder: (dialogContext) {
-        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
-        final dialogBackground = isDark
-            ? const Color(0xFF141414)
-            : Colors.white;
-        final titleColor = isDark ? Colors.white : const Color(0xFF111111);
-        final contentColor = isDark
-            ? Colors.white.withValues(alpha: 0.78)
-            : const Color(0xFF4B5563);
-        final cancelColor = isDark ? Colors.white : const Color(0xFF111111);
-        final confirmBackground = isDark
-            ? Colors.white
-            : const Color(0xFF111111);
-        final confirmForeground = isDark
-            ? const Color(0xFF111111)
-            : Colors.white;
-
-        return AlertDialog(
-          backgroundColor: dialogBackground,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-          contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          title: Text(
-            'Keluar akun',
-            style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
-          ),
-          content: Text(
-            'Yakin mau keluar dari akun ini sekarang?',
-            style: TextStyle(
-              color: contentColor,
-              height: 1.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          actions: [
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: cancelColor,
-                minimumSize: const Size(0, 40),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                ),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: confirmBackground,
-                foregroundColor: confirmForeground,
-                elevation: 0,
-                minimumSize: const Size(0, 40),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 8,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                ),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Keluar'),
-            ),
-          ],
-        );
-      },
+      title: 'Keluar akun',
+      content: 'Yakin mau keluar dari akun ini sekarang?',
+      primaryButtonText: 'Keluar',
+      icon: Icons.logout_rounded,
     );
 
     if (confirmed != true) {
@@ -1238,16 +1297,20 @@ class _MembershipLabel extends StatelessWidget {
 }
 
 class _HomeActionTile extends StatefulWidget {
+  final double width;
   final IconData icon;
   final Color iconColor;
   final Color backgroundColor;
+  final Color borderColor;
   final String label;
   final VoidCallback onTap;
 
   const _HomeActionTile({
+    required this.width,
     required this.icon,
     required this.iconColor,
     required this.backgroundColor,
+    required this.borderColor,
     required this.label,
     required this.onTap,
   });
@@ -1257,7 +1320,15 @@ class _HomeActionTile extends StatefulWidget {
 }
 
 class _HomeActionTileState extends State<_HomeActionTile> {
+  bool _isHovered = false;
   bool _isPressed = false;
+
+  void _setHovered(bool value) {
+    if (_isHovered == value) return;
+    setState(() {
+      _isHovered = value;
+    });
+  }
 
   void _setPressed(bool value) {
     if (_isPressed == value) return;
@@ -1268,48 +1339,81 @@ class _HomeActionTileState extends State<_HomeActionTile> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: widget.onTap,
-      onTapDown: (_) => _setPressed(true),
-      onTapCancel: () => _setPressed(false),
-      onTapUp: (_) => _setPressed(false),
-      borderRadius: BorderRadius.circular(22),
-      child: AnimatedScale(
-        scale: _isPressed ? 0.94 : 1,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOutCubic,
-        child: Column(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              width: 62,
-              height: 62,
-              decoration: BoxDecoration(
-                color: widget.backgroundColor,
-                borderRadius: BorderRadius.circular(_isPressed ? 18 : 20),
-                boxShadow: [
-                  if (_isPressed)
-                    BoxShadow(
-                      color: widget.iconColor.withValues(alpha: 0.20),
-                      blurRadius: 14,
-                      offset: const Offset(0, 6),
-                    ),
-                ],
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final isHighlighted = _isHovered || _isPressed;
+    final defaultIconColor =
+        Color.lerp(widget.iconColor, scheme.onSurfaceVariant, 0.18) ??
+        widget.iconColor;
+    final pressedColor =
+        Color.lerp(widget.iconColor, Colors.black, 0.12) ?? widget.iconColor;
+    final iconColor = _isPressed
+        ? pressedColor
+        : isHighlighted
+        ? widget.iconColor
+        : defaultIconColor;
+    final tileBorderColor = isHighlighted
+        ? widget.iconColor.withValues(alpha: 0.24)
+        : widget.borderColor;
+    final labelColor = isHighlighted
+        ? widget.iconColor
+        : scheme.onSurface.withValues(alpha: 0.82);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) {
+        _setHovered(false);
+        _setPressed(false);
+      },
+      child: InkWell(
+        onTap: widget.onTap,
+        onTapDown: (_) => _setPressed(true),
+        onTapCancel: () => _setPressed(false),
+        onTapUp: (_) => _setPressed(false),
+        borderRadius: BorderRadius.circular(22),
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
+        splashFactory: NoSplash.splashFactory,
+        child: SizedBox(
+          width: widget.width,
+          child: Column(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOutCubic,
+                width: widget.width,
+                height: 62,
+                decoration: BoxDecoration(
+                  color: widget.backgroundColor,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: tileBorderColor),
+                  boxShadow: [
+                    if (!isDark)
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: isHighlighted ? 0.06 : 0.03,
+                        ),
+                        blurRadius: isHighlighted ? 18 : 12,
+                        spreadRadius: -4,
+                        offset: Offset(0, isHighlighted ? 10 : 6),
+                      ),
+                  ],
+                ),
+                child: Icon(widget.icon, color: iconColor, size: 30),
               ),
-              child: Icon(widget.icon, color: widget.iconColor, size: 30),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              widget.label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: scheme.onSurface,
-                fontWeight: FontWeight.w800,
+              const SizedBox(height: 6),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOutCubic,
+                style: TextStyle(
+                  color: labelColor,
+                  fontWeight: isHighlighted ? FontWeight.w900 : FontWeight.w800,
+                ),
+                child: Text(widget.label, textAlign: TextAlign.center),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

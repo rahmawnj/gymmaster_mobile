@@ -19,23 +19,38 @@ class RecentVisitCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final normalizedBadge = statusBadge.trim().toUpperCase();
+    final normalizedStatus = status.trim().toUpperCase();
+    final isCheckin =
+        normalizedBadge.contains('CHECK-IN') ||
+        normalizedBadge == 'OPEN' ||
+        normalizedStatus.contains('CHECK-IN');
+    final iconSurface = isCheckin
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFFFFF2F4))
+        : (isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFFF2FAF5));
+    final iconColor = isCheckin ? AppTheme.primary : AppTheme.success;
+    final cardBorder = isDark
+        ? Colors.white.withValues(alpha: 0.05)
+        : const Color(0xFFF0E7EA);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF171717) : Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.05)
-              : Colors.transparent,
-        ),
+        color: isDark ? const Color(0xFF171717) : const Color(0xFFFFFCFC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cardBorder),
         boxShadow: isDark
             ? const []
             : [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
+                  color: Colors.black.withValues(alpha: 0.035),
                   blurRadius: 18,
+                  spreadRadius: -5,
                   offset: const Offset(0, 10),
                 ),
               ],
@@ -47,14 +62,9 @@ class RecentVisitCard extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : const Color(0xFFF1F3F7),
+              color: iconSurface,
             ),
-            child: const Icon(
-              Icons.location_on_outlined,
-              size: 20,
-            ),
+            child: Icon(Icons.location_on_outlined, size: 20, color: iconColor),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -95,20 +105,16 @@ class RecentVisitCard extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.12)
-                  : const Color(0xFFF1F3F7),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              statusBadge,
-              style: TextStyle(
-                color: isDark ? Colors.white : AppTheme.ink,
-                fontWeight: FontWeight.w800,
-              ),
+          Text(
+            statusBadge,
+            style: TextStyle(
+              color: isCheckin
+                  ? (isDark ? const Color(0xFF91E1B7) : const Color(0xFF167C4F))
+                  : (isDark
+                        ? Colors.white.withValues(alpha: 0.72)
+                        : AppTheme.muted),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],

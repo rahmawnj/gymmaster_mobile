@@ -8,11 +8,17 @@ import '../models/user.dart';
 import '../services/member_dashboard_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
+import '../widgets/top_notification.dart';
 
 class ScanQrHubScreen extends StatefulWidget {
   final User currentUser;
+  final GlobalKey? qrMatrixKey;
 
-  const ScanQrHubScreen({super.key, required this.currentUser});
+  const ScanQrHubScreen({
+    super.key,
+    required this.currentUser,
+    this.qrMatrixKey,
+  });
 
   @override
   State<ScanQrHubScreen> createState() => _ScanQrHubScreenState();
@@ -87,10 +93,10 @@ class _ScanQrHubScreenState extends State<ScanQrHubScreen> {
         _errorMessage = null;
       });
       if (showSuccessMessage && mounted) {
-        final messenger = ScaffoldMessenger.maybeOf(context);
-        messenger?.hideCurrentSnackBar();
-        messenger?.showSnackBar(
-          const SnackBar(content: Text('Data member berhasil di-refresh.')),
+        TopNotification.show(
+          context,
+          message: 'Data member berhasil di-refresh.',
+          type: TopNotificationType.success,
         );
       }
     } on MemberDashboardException catch (error) {
@@ -378,10 +384,13 @@ class _ScanQrHubScreenState extends State<ScanQrHubScreen> {
           child: ScaleTransition(scale: scale, child: child),
         );
       },
-      child: _QrMatrix(
-        key: ValueKey(_qrRenderNonce),
-        value: memberCode,
-        size: qrSize,
+      child: Container(
+        key: widget.qrMatrixKey,
+        child: _QrMatrix(
+          key: ValueKey(_qrRenderNonce),
+          value: memberCode,
+          size: qrSize,
+        ),
       ),
     );
   }

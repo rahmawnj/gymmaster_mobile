@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/auth_session.dart';
@@ -8,6 +9,8 @@ import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
+import '../widgets/modern_modal_dialog.dart';
+import '../widgets/top_notification.dart';
 import 'auth_screen.dart';
 import 'display_settings_screen.dart';
 import 'face_enrollment_screen.dart';
@@ -415,90 +418,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 
   Future<void> _handleLogout() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showModernModalDialog(
       context: context,
-      builder: (dialogContext) {
-        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
-        final dialogBackground = isDark
-            ? const Color(0xFF141414)
-            : Colors.white;
-        final titleColor = isDark ? Colors.white : const Color(0xFF111111);
-        final contentColor = isDark
-            ? Colors.white.withValues(alpha: 0.78)
-            : const Color(0xFF4B5563);
-        final cancelColor = isDark ? Colors.white : const Color(0xFF111111);
-        final confirmBackground = isDark
-            ? Colors.white
-            : const Color(0xFF111111);
-        final confirmForeground = isDark
-            ? const Color(0xFF111111)
-            : Colors.white;
-
-        return AlertDialog(
-          backgroundColor: dialogBackground,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-          contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          title: Text(
-            'Keluar akun',
-            style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
-          ),
-          content: Text(
-            'Yakin mau keluar dari akun ini sekarang?',
-            style: TextStyle(
-              color: contentColor,
-              height: 1.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          actions: [
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: cancelColor,
-                minimumSize: const Size(0, 40),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                ),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: confirmBackground,
-                foregroundColor: confirmForeground,
-                elevation: 0,
-                minimumSize: const Size(0, 40),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 8,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                ),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Keluar'),
-            ),
-          ],
-        );
-      },
+      title: 'Keluar akun',
+      content: 'Yakin mau keluar dari akun ini sekarang?',
+      primaryButtonText: 'Keluar',
+      icon: Icons.logout_rounded,
     );
 
     if (confirmed != true || !mounted) {
@@ -516,6 +441,27 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     );
   }
 
+  Future<void> _openDeleteAccountSheet() async {
+    final selectedReason = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const _DeleteAccountSheet(),
+    );
+
+    if (!mounted || selectedReason == null) {
+      return;
+    }
+
+    TopNotification.show(
+      context,
+      message:
+          'Alasan hapus akun sudah dipilih. Fitur hapus akun akan segera tersedia.',
+      type: TopNotificationType.info,
+    );
+  }
+
   Future<void> _openFaceEnrollment() async {
     final result = await Navigator.of(context).push<FaceEnrollmentResult>(
       MaterialPageRoute(builder: (_) => const FaceEnrollmentScreen()),
@@ -529,10 +475,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       _faceEnrollmentResult = result;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Foto verifikasi final sudah tersimpan lokal.'),
-      ),
+    TopNotification.show(
+      context,
+      message: 'Foto verifikasi final sudah tersimpan lokal.',
+      type: TopNotificationType.success,
     );
   }
 
@@ -546,17 +492,35 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         child: RefreshIndicator(
           onRefresh: _refreshProfile,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+            padding: const EdgeInsets.fromLTRB(0, 28, 0, 120),
             children: [
-              _buildHeroCard(),
-              const SizedBox(height: 18),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _buildHeroCard(),
+              ),
+              const SizedBox(height: 12),
               _buildProfileMenuList(),
-              const SizedBox(height: 26),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _handleLogout,
-                  child: const Text('Keluar'),
+              const SizedBox(height: 32),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _handleLogout,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text(
+                      'Keluar',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -574,11 +538,20 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: _openEditProfileSheet,
-        borderRadius: BorderRadius.circular(28),
+        onLongPress: () {
+          HapticFeedback.heavyImpact();
+          Clipboard.setData(ClipboardData(text: _user.memberCode));
+          TopNotification.show(
+            context,
+            message: 'Kode Member ${_user.memberCode} disalin!',
+            type: TopNotificationType.success,
+          );
+        },
+        borderRadius: BorderRadius.circular(15),
         child: Ink(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(15),
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -654,15 +627,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Atur profil dan data akun kamu di sini.',
-                          style: TextStyle(
-                            color: heroSubTextColor,
-                            fontSize: 15,
-                            height: 1.4,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
                           _user.memberCode,
                           style: TextStyle(
                             color: heroSubTextColor,
@@ -702,7 +666,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
               'Liveness on-device dengan step tengah, sisi, sisi balik, lalu senyum.',
           onTap: _openFaceEnrollment,
         ),
-        Divider(color: dividerColor),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Divider(color: dividerColor, height: 1),
+        ),
         _MenuRowTile(
           icon: Icons.tune_rounded,
           title: 'Tampilan',
@@ -713,8 +680,19 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             );
           },
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Divider(color: dividerColor, height: 1),
+        ),
+        _MenuRowTile(
+          icon: Icons.delete_forever_rounded,
+          title: 'Hapus akun',
+          subtitle: 'Pilih alasan sebelum mengajukan penghapusan akun.',
+          foregroundColor: Colors.red.shade600,
+          onTap: _openDeleteAccountSheet,
+        ),
         if (_faceEnrollmentResult != null) ...[
-          const SizedBox(height: 18),
+          const SizedBox(height: 24),
           _buildFacePreviewCard(_faceEnrollmentResult!),
         ],
       ],
@@ -761,6 +739,283 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DeleteAccountSheet extends StatefulWidget {
+  const _DeleteAccountSheet();
+
+  @override
+  State<_DeleteAccountSheet> createState() => _DeleteAccountSheetState();
+}
+
+class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
+  static const _otherReason = 'Lainnya';
+  static const _reasons = [
+    'Sudah tidak menggunakan aplikasi',
+    'Pindah ke gym lain',
+    'Punya akun lain',
+    'Khawatir soal privasi data',
+    _otherReason,
+  ];
+
+  final _otherReasonController = TextEditingController();
+  String? _selectedReason;
+  bool _showOtherReasonError = false;
+
+  @override
+  void dispose() {
+    _otherReasonController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final selectedReason = _selectedReason;
+    if (selectedReason == null) {
+      return;
+    }
+
+    final reason = selectedReason == _otherReason
+        ? _otherReasonController.text.trim()
+        : selectedReason;
+
+    if (selectedReason == _otherReason && reason.isEmpty) {
+      setState(() {
+        _showOtherReasonError = true;
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final onSurface = scheme.onSurface;
+    final onSurfaceVariant = scheme.onSurfaceVariant;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final canSubmit =
+        _selectedReason != null &&
+        (_selectedReason != _otherReason ||
+            _otherReasonController.text.trim().isNotEmpty);
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        top: false,
+        child: Container(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 28,
+                offset: const Offset(0, -10),
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 52,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: onSurface.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(
+                        Icons.delete_forever_rounded,
+                        color: Colors.red.shade600,
+                        size: 26,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Hapus akun',
+                            style: TextStyle(
+                              color: onSurface,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Pilih alasan kenapa kamu ingin menghapus akun.',
+                            style: TextStyle(
+                              color: onSurfaceVariant,
+                              fontSize: 14,
+                              height: 1.45,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      style: IconButton.styleFrom(
+                        backgroundColor: onSurface.withValues(alpha: 0.06),
+                        foregroundColor: onSurface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                ..._reasons.map((reason) {
+                  final isSelected = _selectedReason == reason;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedReason = reason;
+                          _showOtherReasonError = false;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? Colors.red.withValues(alpha: 0.08)
+                              : scheme.surfaceContainerHighest.withValues(
+                                  alpha: 0.45,
+                                ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.red.shade500
+                                : onSurfaceVariant.withValues(alpha: 0.12),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isSelected
+                                  ? Icons.radio_button_checked_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                              color: isSelected
+                                  ? Colors.red.shade600
+                                  : onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                reason,
+                                style: TextStyle(
+                                  color: onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: _selectedReason == _otherReason
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 2, bottom: 18),
+                          child: TextField(
+                            controller: _otherReasonController,
+                            minLines: 3,
+                            maxLines: 4,
+                            textInputAction: TextInputAction.done,
+                            onChanged: (_) {
+                              if (_showOtherReasonError) {
+                                setState(() {
+                                  _showOtherReasonError = false;
+                                });
+                              } else {
+                                setState(() {});
+                              }
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Tulis alasan lainnya',
+                              alignLabelWithHint: true,
+                              errorText: _showOtherReasonError
+                                  ? 'Alasan lainnya wajib diisi'
+                                  : null,
+                              prefixIcon: const Padding(
+                                padding: EdgeInsets.only(bottom: 48),
+                                child: Icon(Icons.edit_note_rounded),
+                              ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox(height: 8),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: canSubmit ? _submit : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: onSurfaceVariant.withValues(
+                        alpha: 0.18,
+                      ),
+                      disabledForegroundColor: onSurfaceVariant.withValues(
+                        alpha: 0.52,
+                      ),
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 17),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text(
+                      'Hapus akun',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -957,25 +1212,29 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profil berhasil diperbarui.')),
+      TopNotification.show(
+        context,
+        message: 'Profil berhasil diperbarui.',
+        type: TopNotificationType.success,
       );
       Navigator.of(context).pop(updatedUser);
     } on AuthException catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
+      TopNotification.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+        message: error.message,
+        type: TopNotificationType.error,
+      );
     } catch (_) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gagal menyimpan perubahan profil ke server.'),
-        ),
+      TopNotification.show(
+        context,
+        message: 'Gagal menyimpan perubahan profil ke server.',
+        type: TopNotificationType.error,
       );
     } finally {
       if (mounted) {
@@ -1014,8 +1273,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Gagal mengambil file. Coba lagi.')),
+      TopNotification.show(
+        context,
+        message: 'Gagal mengambil file. Coba lagi.',
+        type: TopNotificationType.error,
       );
     }
   }
@@ -1025,7 +1286,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final onSurface = scheme.onSurface;
-    final onSurfaceVariant = scheme.onSurfaceVariant;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
@@ -1079,7 +1339,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                                       fontWeight: FontWeight.w900,
                                     ),
                                   ),
-                                
                                 ],
                               ),
                             ),
@@ -1299,11 +1558,30 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 3),
-                OutlinedButton.icon(
-                  onPressed: _pickProfileImage,
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('Pilih file'),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _pickProfileImage,
+                    icon: const Icon(Icons.photo_library_rounded, size: 18),
+                    label: const Text(
+                      'Pilih file',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    style: TextButton.styleFrom(
+                      backgroundColor: scheme.primary.withValues(alpha: 0.12),
+                      foregroundColor: scheme.primary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      minimumSize: const Size(0, 0),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1340,12 +1618,14 @@ class _MenuRowTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final Color? foregroundColor;
 
   const _MenuRowTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.foregroundColor,
   });
 
   @override
@@ -1355,56 +1635,75 @@ class _MenuRowTile extends StatelessWidget {
     final onSurface = scheme.onSurface;
     final onSurfaceVariant = scheme.onSurfaceVariant;
     final isDark = theme.brightness == Brightness.dark;
+    final tileRadius = BorderRadius.zero;
+    final accentColor = foregroundColor ?? scheme.primary;
 
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : const Color(0xFFFFF2E8),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: scheme.primary, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: onSurface,
-                      fontWeight: FontWeight.w800,
-                    ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: tileRadius,
+        overlayColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.pressed)) {
+            return scheme.primary.withValues(alpha: isDark ? 0.16 : 0.10);
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return scheme.primary.withValues(alpha: isDark ? 0.10 : 0.06);
+          }
+          return null;
+        }),
+        child: Ink(
+          width: double.infinity,
+          decoration: BoxDecoration(borderRadius: tileRadius),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: onSurfaceVariant,
-                      fontSize: 12.5,
-                      height: 1.45,
-                    ),
+                  child: Icon(icon, color: accentColor, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: onSurface,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          color: onSurfaceVariant,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 12),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: onSurfaceVariant.withValues(alpha: 0.5),
+                  size: 24,
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: onSurfaceVariant,
-              size: 22,
-            ),
-          ],
+          ),
         ),
       ),
     );

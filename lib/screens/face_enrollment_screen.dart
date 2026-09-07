@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show PointMode;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -61,7 +60,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
   Offset? _lastStableFaceCenter;
   double? _lastStableFaceWidthRatio;
   double? _lastStableFaceHeightRatio;
-  Size? _latestFrameImageSize;
   InputImageRotation? _latestFrameRotation;
   double? _previewBlurScore;
   int _stableFrameCount = 0;
@@ -290,10 +288,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
 
       setState(() {
         _geometry = geometry;
-        _latestFrameImageSize = Size(
-          image.width.toDouble(),
-          image.height.toDouble(),
-        );
         _previewBlurScore = previewBlurScore;
         _errorMessage = null;
       });
@@ -528,8 +522,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     return const Color(0xFFFF8A65);
   }
 
-
-
   void _handleAutoCaptureState(FaceFrameGeometry geometry) {
     if (_isCapturing) {
       return;
@@ -571,7 +563,7 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       ..stop()
       ..reset()
       ..forward();
-      
+
     setState(() {
       _countdownValue = _captureCountdownStart;
       _countdownMessage = 'Wajah sudah pas. Tahan posisi...';
@@ -779,7 +771,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
       _cameraController = null;
     }
     _resetStabilityState();
-    _latestFrameImageSize = null;
     _latestFrameRotation = null;
     _lastProcessedAt = null;
     _isProcessingFrame = false;
@@ -874,8 +865,8 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
                 children: [
                   Positioned.fill(child: _buildCameraBody()),
                   Positioned.fill(child: _buildGuideFrame()),
-                  Positioned.fill(child: _buildFaceContourOverlay()),
-                  if (_countdownValue != null || (!_hasBlinked && _isReadyForCountdown))
+                  if (_countdownValue != null ||
+                      (!_hasBlinked && _isReadyForCountdown))
                     Positioned.fill(child: _buildCenterOverlay()),
                   Positioned(
                     top: 12,
@@ -919,34 +910,6 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
     return Transform.scale(
       scale: scale,
       child: Center(child: CameraPreview(controller)),
-    );
-  }
-
-  Widget _buildFaceContourOverlay() {
-    final controller = _cameraController;
-    final face = _geometry.primaryFace;
-    final imageSize = _latestFrameImageSize;
-    final imageRotation = _latestFrameRotation;
-    if (_isInitializing ||
-        controller == null ||
-        !controller.value.isInitialized ||
-        face == null ||
-        imageSize == null ||
-        imageRotation == null) {
-      return const SizedBox.shrink();
-    }
-
-    return IgnorePointer(
-      child: CustomPaint(
-        painter: _FaceContourOverlayPainter(
-          face: face,
-          imageSize: imageSize,
-          imageRotation: imageRotation,
-          mirrorHorizontally:
-              controller.description.lensDirection == CameraLensDirection.front,
-          accentColor: _guideFrameColor,
-        ),
-      ),
     );
   }
 
@@ -1201,7 +1164,9 @@ class _FaceEnrollmentScreenState extends State<FaceEnrollmentScreen>
                 valueText: '${(_geometry.faceWidthRatio * 100).round()}%',
                 isAligned: _geometry.isLargeEnough && !_geometry.isTooLarge,
                 alignedLabel: 'Aman',
-                warningLabel: _geometry.isTooLarge ? 'Mundur sedikit' : 'Terlalu jauh',
+                warningLabel: _geometry.isTooLarge
+                    ? 'Mundur sedikit'
+                    : 'Terlalu jauh',
                 safeRange: FaceQualityService.formatRatioRange(
                   FaceQualityService.minFaceWidthRatio,
                   FaceQualityService.maxFaceWidthRatio,
@@ -1733,132 +1698,5 @@ class _GuideOutlinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _GuideOutlinePainter oldDelegate) {
     return oldDelegate.color != color || oldDelegate.isLocked != isLocked;
-  }
-}
-
-class _FaceContourOverlayPainter extends CustomPainter {
-  final Face face;
-  final Size imageSize;
-  final InputImageRotation imageRotation;
-  final bool mirrorHorizontally;
-  final Color accentColor;
-
-  const _FaceContourOverlayPainter({
-    required this.face,
-    required this.imageSize,
-    required this.imageRotation,
-    required this.mirrorHorizontally,
-    required this.accentColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (imageSize.width <= 0 || imageSize.height <= 0) {
-      return;
-    }
-
-    final boxPaint = Paint()
-      ..color = const Color(0xFFFF4B4B)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2;
-    final linePaint = Paint()
-      ..color = accentColor.withValues(alpha: 0.92)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    final pointPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.86)
-      ..style = PaintingStyle.fill
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 4;
-
-    canvas.drawRect(_mapImageRectToCanvas(face.boundingBox, size), boxPaint);
-
-    for (final contour in face.contours.values) {
-      final points = contour?.points;
-      if (points == null || points.isEmpty) {
-        continue;
-      }
-
-      final canvasPoints = points
-          .map(
-            (point) => _mapImagePointToCanvas(
-              point.x.toDouble(),
-              point.y.toDouble(),
-              size,
-            ),
-          )
-          .toList(growable: false);
-      if (canvasPoints.length < 2) {
-        continue;
-      }
-
-      final path = Path()..moveTo(canvasPoints.first.dx, canvasPoints.first.dy);
-      for (var i = 1; i < canvasPoints.length; i++) {
-        path.lineTo(canvasPoints[i].dx, canvasPoints[i].dy);
-      }
-      if (contour!.type == FaceContourType.face ||
-          contour.type == FaceContourType.leftEye ||
-          contour.type == FaceContourType.rightEye ||
-          contour.type == FaceContourType.upperLipTop ||
-          contour.type == FaceContourType.lowerLipBottom) {
-        path.close();
-      }
-
-      canvas.drawPath(path, linePaint);
-      canvas.drawPoints(PointMode.points, canvasPoints, pointPaint);
-    }
-  }
-
-  Rect _mapImageRectToCanvas(Rect rect, Size canvasSize) {
-    final mappedPoints = [
-      rect.topLeft,
-      rect.topRight,
-      rect.bottomLeft,
-      rect.bottomRight,
-    ].map((point) => _mapImagePointToCanvas(point.dx, point.dy, canvasSize));
-    final minX = mappedPoints.map((point) => point.dx).reduce(math.min);
-    final maxX = mappedPoints.map((point) => point.dx).reduce(math.max);
-    final minY = mappedPoints.map((point) => point.dy).reduce(math.min);
-    final maxY = mappedPoints.map((point) => point.dy).reduce(math.max);
-    return Rect.fromLTRB(minX, minY, maxX, maxY);
-  }
-
-  Offset _mapImagePointToCanvas(double x, double y, Size canvasSize) {
-    final rotatedImageSize = _rotatedImageSize();
-    final scale = math.max(
-      canvasSize.width / rotatedImageSize.width,
-      canvasSize.height / rotatedImageSize.height,
-    );
-    final drawnWidth = rotatedImageSize.width * scale;
-    final drawnHeight = rotatedImageSize.height * scale;
-    final dx = (canvasSize.width - drawnWidth) / 2;
-    final dy = (canvasSize.height - drawnHeight) / 2;
-    final mappedX = mirrorHorizontally
-        ? dx + drawnWidth - (x * scale)
-        : dx + (x * scale);
-    final mappedY = dy + (y * scale);
-    return Offset(mappedX, mappedY);
-  }
-
-  Size _rotatedImageSize() {
-    switch (imageRotation) {
-      case InputImageRotation.rotation90deg:
-      case InputImageRotation.rotation270deg:
-        return Size(imageSize.height, imageSize.width);
-      case InputImageRotation.rotation0deg:
-      case InputImageRotation.rotation180deg:
-        return imageSize;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _FaceContourOverlayPainter oldDelegate) {
-    return oldDelegate.face != face ||
-        oldDelegate.imageSize != imageSize ||
-        oldDelegate.imageRotation != imageRotation ||
-        oldDelegate.mirrorHorizontally != mirrorHorizontally ||
-        oldDelegate.accentColor != accentColor;
   }
 }

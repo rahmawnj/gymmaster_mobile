@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../models/auth_session.dart';
+import '../services/app_lock_service.dart';
 import '../services/session_storage.dart';
-import '../theme/app_theme.dart';
+import '../widgets/app_lock_gate.dart';
+import '../widgets/app_logo.dart';
 import 'auth_screen.dart';
 import 'main_shell_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -15,12 +18,12 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
+  static const String _heroBackgroundImage = 'assets/images/auth-gym-bg.jpg';
   late final AnimationController _introController;
   final _sessionStorage = const SessionStorage();
   late final Animation<double> _logoOpacity;
   late final Animation<double> _logoScale;
   late final Animation<double> _logoLift;
-
   @override
   void initState() {
     super.initState();
@@ -61,28 +64,30 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _bootstrap() async {
     final results = await Future.wait<Object?>([
-      Future<void>.delayed(const Duration(milliseconds: 1200)),
-      _sessionStorage.loadSession().timeout(
-        const Duration(milliseconds: 900),
-        onTimeout: () => null,
-      ),
+      Future<void>.delayed(const Duration(milliseconds: 1500)),
+      _sessionStorage.loadSession(),
+      AppLockService.instance.isEnabled(),
     ]);
 
     if (!mounted) return;
 
     final session = results[1] as AuthSession?;
+    final isAppLockEnabled = results[2] as bool? ?? false;
     final nextPage = session == null
         ? const AuthScreen(isLogin: true)
         : MainShellScreen(currentUser: session.user);
+    final nextRoot = isAppLockEnabled
+        ? AppLockGate(isEnabled: true, child: nextPage)
+        : nextPage;
 
     Navigator.of(context).pushReplacement(
       PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 380),
-        pageBuilder: (context, animation, secondaryAnimation) => nextPage,
+        transitionDuration: const Duration(milliseconds: 320),
+        pageBuilder: (context, animation, secondaryAnimation) => nextRoot,
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           final curve = CurvedAnimation(
             parent: animation,
-            curve: Curves.easeOut,
+            curve: Curves.easeOutCubic,
           );
           return FadeTransition(
             opacity: curve,
@@ -99,57 +104,62 @@ class _SplashScreenState extends State<SplashScreen>
       body: AnimatedBuilder(
         animation: _introController,
         builder: (context, child) {
-          return Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  const Color(0xFF151515),
-                  const Color(0xFF090909),
-                  AppTheme.primary.withValues(alpha: 0.18),
-                ],
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(
+                _heroBackgroundImage,
+                fit: BoxFit.cover,
+                alignment: const Alignment(0.24, 0),
               ),
-            ),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: const Alignment(0, -0.12),
-                        radius: 0.9,
-                        colors: [
-                          AppTheme.primary.withValues(alpha: 0.12),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.38),
+                      const Color(0xB8140B0C),
+                      const Color(0xF2090909),
+                    ],
+                    stops: const [0, 0.46, 1],
                   ),
                 ),
-                SafeArea(
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Transform.translate(
-                        offset: Offset(0, _logoLift.value),
-                        child: FadeTransition(
-                          opacity: _logoOpacity,
-                          child: ScaleTransition(
-                            scale: _logoScale,
-                            child: Image.asset(
-                              'assets/images/logo/logo-swoosh-red-top.png',
-                              width: 170,
-                              fit: BoxFit.contain,
-                            ),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0.06, -0.2),
+                    radius: 0.88,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.04),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+              SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Transform.translate(
+                      offset: Offset(0, _logoLift.value),
+                      child: FadeTransition(
+                        opacity: _logoOpacity,
+                        child: ScaleTransition(
+                          scale: _logoScale,
+                          child: const AppLogo(
+                            size: 130,
+                            variant: AppLogoVariant.iconOnly,
+                            tone: AppLogoTone.light,
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           );
         },
       ),

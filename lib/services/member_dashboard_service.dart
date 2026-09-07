@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/member_dashboard.dart';
+import 'auth_manager.dart';
 
 class MemberDashboardException implements Exception {
   final String message;
@@ -88,6 +89,9 @@ class MemberDashboardService {
   }
 
   String _extractMessage(Map<String, dynamic> body, int statusCode) {
+    if (statusCode == 401) {
+      AuthManager.logout();
+    }
     final message = body['message']?.toString();
     final errors = body['errors'];
 

@@ -6,6 +6,7 @@ import '../services/api_config.dart';
 import '../services/auth_service.dart';
 import '../services/gym_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/top_notification.dart';
 import 'gym_access_qr_screen.dart';
 
 class GymDetailScreen extends StatefulWidget {
@@ -122,13 +123,17 @@ class _GymDetailScreenState extends State<GymDetailScreen> {
       Navigator.of(context).pop(result);
     } on AuthException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
+      TopNotification.show(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+        message: error.message,
+        type: TopNotificationType.error,
+      );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Gagal mengirim join request ke server.')),
+      TopNotification.show(
+        context,
+        message: 'Gagal mengirim join request ke server.',
+        type: TopNotificationType.error,
       );
     } finally {
       if (mounted) {

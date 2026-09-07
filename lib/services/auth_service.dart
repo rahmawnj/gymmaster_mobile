@@ -7,6 +7,8 @@ import '../models/auth_session.dart';
 import '../models/user.dart';
 import 'api_config.dart';
 
+import 'auth_manager.dart';
+
 class AuthException implements Exception {
   final String message;
 
@@ -303,6 +305,9 @@ class AuthService {
   }
 
   String _extractMessage(Map<String, dynamic> body, int statusCode) {
+    if (statusCode == 401) {
+      AuthManager.logout();
+    }
     final message = body['message']?.toString();
     final errors = body['errors'];
 

@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../services/gym_service.dart';
 import '../services/screen_security_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/top_notification.dart';
 
 class GymAccessQrScreen extends StatefulWidget {
   final Gym gym;
@@ -163,15 +164,12 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
 
         if (statusRequest.isScanned) {
           _cancelTimers();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                statusRequest.flashMessage.isNotEmpty
-                    ? statusRequest.flashMessage
-                    : 'QR sudah discan. Silakan masuk.',
-              ),
-              backgroundColor: Colors.green.shade700,
-            ),
+          TopNotification.show(
+            context,
+            message: statusRequest.flashMessage.isNotEmpty
+                ? statusRequest.flashMessage
+                : 'QR sudah discan. Silakan masuk.',
+            type: TopNotificationType.success,
           );
         }
 
@@ -259,14 +257,11 @@ class _GymAccessQrScreenState extends State<GymAccessQrScreen> {
     _isAutoRefreshQueued = true;
 
     try {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('QR sudah expired. Membuat request baru...'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+      TopNotification.show(
+        context,
+        message: 'QR sudah expired. Membuat request baru...',
+        type: TopNotificationType.info,
+      );
 
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted) return;

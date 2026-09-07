@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -45,5 +45,20 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to scan QR codes and verify your face for member access.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to your photo library to upload a profile picture and capture face enrollment photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app needs permission to save photos to your library.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs your location to verify you are at the gym when accessing member areas.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app needs your location to verify you are at the gym when accessing member areas.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>This app uses Face ID to authenticate you and protect your member account.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app does not record audio. Microphone access is requested by the camera framework.</string>
 </dict>
 </plist>

@@ -1,13 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/auth_session.dart';
 import '../services/api_config.dart';
 import '../services/auth_service.dart';
 import '../services/session_storage.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_logo.dart';
+import '../widgets/top_notification.dart';
 import 'main_shell_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -20,12 +21,15 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // Ubah nilai ini kalau seluruh kartu/login sheet ingin dinaikkan atau diturunkan.
   static const double _cardStackVerticalOffset = -10;
   static const double _collapsedSheetMinHeight = 286;
   static const double _loginSheetMinHeight = 410;
   static const double _registerSheetMinHeight = 560;
+  static const String _heroBackgroundImage = 'assets/images/auth-gym-bg.jpg';
+  static const String _heroLogoImage =
+      'assets/images/logo/logo-swoosh-red-left.png';
 
   final _formKey = GlobalKey<FormState>();
   final _authService = const AuthService();
@@ -48,16 +52,18 @@ class _AuthScreenState extends State<AuthScreen>
   bool _obscurePassword = true;
   bool _sheetVisible = false;
   bool _sheetExpanded = true;
+  DateTime? _lastBackPressedAt;
   late final AnimationController _sheetSwitchController;
   late final Animation<double> _sheetSwitchOffset;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _isLoginMode = widget.isLogin;
     _nameController = TextEditingController();
-    _emailController = TextEditingController(text: 'mxbal026@gmail.com');
-    _passwordController = TextEditingController(text: 'password123');
+    _emailController = TextEditingController();
+    _passwordController = TextEditingController();
     _phoneController = TextEditingController();
     _provinceIdController = TextEditingController();
     _cityIdController = TextEditingController();
@@ -96,6 +102,7 @@ class _AuthScreenState extends State<AuthScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -110,15 +117,23 @@ class _AuthScreenState extends State<AuthScreen>
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _lastBackPressedAt = null;
+      TopNotification.clear();
+    }
+  }
+
   Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate() || _isSubmitting) return;
 
     setState(() {
       _isSubmitting = true;
     });
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
 
     try {
       final session = _isLoginMode
@@ -206,25 +221,27 @@ class _AuthScreenState extends State<AuthScreen>
       if (!mounted) return;
       await _sessionStorage.saveSession(activeSession);
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            _isLoginMode
-                ? 'Login berhasil. Selamat datang ${activeSession.user.name}.'
-                : 'Register berhasil. Selamat datang ${activeSession.user.name}.',
-          ),
-        ),
+      TopNotification.show(
+        context,
+        message: _isLoginMode
+            ? 'Login berhasil. Selamat datang ${activeSession.user.name}.'
+            : 'Pendaftaran berhasil. Selamat datang ${activeSession.user.name}.',
+        type: TopNotificationType.success,
       );
       _openHome(activeSession);
     } on AuthException catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      TopNotification.show(
+        context,
+        message: error.message,
+        type: TopNotificationType.error,
+      );
     } catch (_) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Gagal terhubung ke server. ${ApiConfig.serverHint}'),
-        ),
+      TopNotification.show(
+        context,
+        message: 'Gagal terhubung ke server. ${ApiConfig.serverHint}',
+        type: TopNotificationType.error,
       );
     } finally {
       if (mounted) {
@@ -262,144 +279,191 @@ class _AuthScreenState extends State<AuthScreen>
     _sheetSwitchController.forward(from: 0);
   }
 
+  void _handleBackPressed() {
+    final now = DateTime.now();
+    final shouldExit =
+        _lastBackPressedAt != null &&
+        now.difference(_lastBackPressedAt!) <
+            const Duration(milliseconds: 1200);
+
+    if (shouldExit) {
+      _lastBackPressedAt = null;
+      TopNotification.clear();
+      SystemNavigator.pop();
+      return;
+    }
+
+    _lastBackPressedAt = now;
+    TopNotification.show(
+      context,
+      message: 'Tekan 2 kali untuk keluar.',
+      type: TopNotificationType.info,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      resizeToAvoidBottomInset: false,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final horizontalPadding = mediaQuery.size.width < 360 ? 20.0 : 36.0;
-          final sheetHeight = _resolveSheetHeight(
-            mediaQuery: mediaQuery,
-            viewportHeight: constraints.maxHeight,
-          );
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackPressed();
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8F8F8),
+        resizeToAvoidBottomInset: false,
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final horizontalPadding = mediaQuery.size.width < 360 ? 20.0 : 36.0;
+            final sheetHeight = _resolveSheetHeight(
+              mediaQuery: mediaQuery,
+              viewportHeight: constraints.maxHeight,
+            );
 
-          return Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFF130809),
-                  Color(0xFF221011),
-                  Color(0xFF090909),
-                ],
-              ),
-            ),
-            child: Stack(
-              children: [
-                _buildBackgroundOrnaments(),
-                SafeArea(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      horizontalPadding,
-                      20,
-                      horizontalPadding,
-                      20,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        const SizedBox(height: 24),
-                        const SizedBox(
-                          width: 124,
-                          height: 124,
-                          child: Center(child: AppLogo(size: 88)),
-                        ),
-                        const SizedBox(height: 20),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 260),
-                          child: Center(
-                            key: ValueKey(_isLoginMode),
-                            child: Column(
-                              children: [
-                                Text(
-                                  _isLoginMode
-                                      ? 'Welcome Back'
-                                      : 'Create Account',
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.headlineMedium
-                                      ?.copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _isLoginMode
-                                      ? 'Login to continue.'
-                                      : 'Lengkapi data untuk membuat akun baru.',
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: Colors.white.withValues(alpha: 0.72),
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
+            return Container(
+              color: const Color(0xFFF8F8F8),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildBackgroundImage(),
+                  SafeArea(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
+                        20,
+                        horizontalPadding,
+                        20,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 24),
+                          const SizedBox(
+                            width: 240,
+                            height: 108,
+                            child: Center(
+                              child: Image(
+                                image: AssetImage(_heroLogoImage),
+                                fit: BoxFit.contain,
+                              ),
                             ),
                           ),
-                        ),
-                        const Spacer(),
-                      ],
-                    ),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: AnimatedPadding(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutCubic,
-                    padding: EdgeInsets.only(
-                      bottom: mediaQuery.viewInsets.bottom,
-                    ),
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 360),
-                      opacity: _sheetVisible ? 1 : 0,
-                      child: AnimatedSlide(
-                        duration: const Duration(milliseconds: 460),
-                        curve: Curves.easeOutBack,
-                        offset: _sheetVisible
-                            ? Offset.zero
-                            : const Offset(0, 1),
-                        child: AnimatedBuilder(
-                          animation: _sheetSwitchOffset,
-                          child: _buildBottomSheet(theme),
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(
-                                0,
-                                _sheetSwitchOffset.value +
-                                    _cardStackVerticalOffset,
-                              ),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 280),
-                                curve: Curves.easeOutCubic,
-                                height: sheetHeight,
-                                width: double.infinity,
-                                child: Center(
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 560,
+                          const SizedBox(height: 20),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 260),
+                            child: Center(
+                              key: ValueKey(_isLoginMode),
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 320,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      _isLoginMode
+                                          ? 'Selamat Datang'
+                                          : 'Daftar Akun',
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.headlineMedium
+                                          ?.copyWith(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                            shadows: const [
+                                              Shadow(
+                                                color: Color(0x66000000),
+                                                blurRadius: 18,
+                                                offset: Offset(0, 6),
+                                              ),
+                                            ],
+                                          ),
                                     ),
-                                    child: child,
-                                  ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _isLoginMode
+                                          ? 'Masuk untuk melanjutkan.'
+                                          : 'Lengkapi data diri untuk mendaftar akun baru.',
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.84,
+                                            ),
+                                            height: 1.4,
+                                            shadows: const [
+                                              Shadow(
+                                                color: Color(0x55000000),
+                                                blurRadius: 12,
+                                                offset: Offset(0, 4),
+                                              ),
+                                            ],
+                                          ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            );
-                          },
+                            ),
+                          ),
+                          const Spacer(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedPadding(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutCubic,
+                      padding: EdgeInsets.only(
+                        bottom: mediaQuery.viewInsets.bottom,
+                      ),
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 360),
+                        opacity: _sheetVisible ? 1 : 0,
+                        child: AnimatedSlide(
+                          duration: const Duration(milliseconds: 460),
+                          curve: Curves.easeOutBack,
+                          offset: _sheetVisible
+                              ? Offset.zero
+                              : const Offset(0, 1),
+                          child: AnimatedBuilder(
+                            animation: _sheetSwitchOffset,
+                            child: _buildBottomSheet(theme),
+                            builder: (context, child) {
+                              return Transform.translate(
+                                offset: Offset(
+                                  0,
+                                  _sheetSwitchOffset.value +
+                                      _cardStackVerticalOffset,
+                                ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 280),
+                                  curve: Curves.easeOutCubic,
+                                  height: sheetHeight,
+                                  width: double.infinity,
+                                  child: Center(
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 560,
+                                      ),
+                                      child: child,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -422,56 +486,52 @@ class _AuthScreenState extends State<AuthScreen>
     return preferredHeight.clamp(minHeight, maxHeight).toDouble();
   }
 
-  Widget _buildBackgroundOrnaments() {
+  Widget _buildBackgroundImage() {
     return Stack(
+      fit: StackFit.expand,
       children: [
-        Positioned(
-          top: 12,
-          left: 12,
-          child: Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppTheme.primary.withValues(alpha: 0.72),
+        Image.asset(
+          _heroBackgroundImage,
+          fit: BoxFit.cover,
+          alignment: const Alignment(0.24, 0),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.24),
+                const Color(0xB0130B0C),
+                const Color(0xF2090909),
+              ],
+              stops: const [0, 0.48, 1],
             ),
           ),
         ),
-        Positioned(
-          top: 96,
-          right: 12,
-          child: Container(
-            width: 168,
-            height: 168,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppTheme.accent.withValues(alpha: 0.46),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                Colors.black.withValues(alpha: 0.42),
+                Colors.black.withValues(alpha: 0.08),
+                Colors.black.withValues(alpha: 0.32),
+              ],
+              stops: const [0, 0.52, 1],
             ),
           ),
         ),
-        Positioned(
-          top: 72,
-          right: 32,
-          child: Container(
-            width: 148,
-            height: 148,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: AppTheme.primary.withValues(alpha: 0.4),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          top: 132,
-          left: 20,
-          child: Container(
-            width: 68,
-            height: 68,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(0.02, -0.52),
+              radius: 0.92,
+              colors: [
+                Colors.white.withValues(alpha: 0.035),
+                Colors.transparent,
+              ],
             ),
           ),
         ),
@@ -556,7 +616,7 @@ class _AuthScreenState extends State<AuthScreen>
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () => _switchMode(true),
-                        child: const Text('Login'),
+                        child: const Text('Masuk'),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -564,7 +624,7 @@ class _AuthScreenState extends State<AuthScreen>
                       width: double.infinity,
                       child: OutlinedButton(
                         onPressed: () => _switchMode(false),
-                        child: const Text('Register'),
+                        child: const Text('Daftar'),
                       ),
                     ),
                   ],
@@ -573,7 +633,7 @@ class _AuthScreenState extends State<AuthScreen>
             ),
           ] else ...[
             Text(
-              _isLoginMode ? 'Login' : 'Register',
+              _isLoginMode ? 'Masuk' : 'Daftar',
               style: theme.textTheme.titleLarge?.copyWith(
                 color: AppTheme.ink,
                 fontWeight: FontWeight.w800,
@@ -613,7 +673,7 @@ class _AuthScreenState extends State<AuthScreen>
                         ],
                         _buildField(
                           controller: _emailController,
-                          label: 'rahma@mail.com',
+                          label: 'example@mail.com',
                           icon: Icons.alternate_email_rounded,
                           keyboardType: TextInputType.emailAddress,
                           validator: (value) {
@@ -735,9 +795,7 @@ class _AuthScreenState extends State<AuthScreen>
                                       ),
                                     ),
                                   )
-                                : Text(
-                                    _isLoginMode ? 'Sign in' : 'Create account',
-                                  ),
+                                : Text(_isLoginMode ? 'Masuk' : 'Daftar'),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -766,7 +824,7 @@ class _AuthScreenState extends State<AuthScreen>
                                   foregroundColor: AppTheme.primary,
                                 ),
                                 child: Text(
-                                  _isLoginMode ? 'Register' : 'Login',
+                                  _isLoginMode ? 'Daftar' : 'Masuk',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w800,
                                   ),
