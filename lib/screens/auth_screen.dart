@@ -622,7 +622,6 @@ class _AuthScreenState extends State<AuthScreen>
                     SizedBox(
                       width: double.infinity,
                       child: Stack(
-                        clipBehavior: Clip.none,
                         children: [
                           SizedBox(
                             width: double.infinity,
@@ -645,32 +644,30 @@ class _AuthScreenState extends State<AuthScreen>
                             ),
                           ),
                           Positioned(
-                            right: -8,
-                            top: -13,
+                            right: 8,
+                            top: 0,
                             child: Transform.rotate(
-                              angle: 0.12,
+                              angle: 0.08,
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 5,
+                                  horizontal: 7,
+                                  vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.primary,
-                                  borderRadius: BorderRadius.circular(5),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Color(0x22000000),
-                                      blurRadius: 6,
-                                      offset: Offset(0, 3),
-                                    ),
-                                  ],
+                                  color: const Color(0xFFF4C542),
+                                  borderRadius: const BorderRadius.vertical(
+                                    bottomLeft: Radius.circular(4),
+                                    bottomRight: Radius.circular(4),
+                                  ),
                                 ),
                                 child: Text(
-                                  'COMING SOON',
+                                  'SOON',
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    color: Colors.white,
+                                    color: const Color(0xFF5C4700),
+                                    fontSize: 8,
                                     fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.7,
+                                    letterSpacing: 0.5,
+                                    height: 1.0,
                                   ),
                                 ),
                               ),
