@@ -623,8 +623,8 @@ class _AuthScreenState extends State<AuthScreen>
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton(
-                        onPressed: () => _switchMode(false),
-                        child: const Text('Daftar'),
+                        onPressed: _isLoginMode ? null : () => _switchMode(false),
+                        child: const Text('Daftar — Coming Soon'),
                       ),
                     ),
                   ],
@@ -813,7 +813,7 @@ class _AuthScreenState extends State<AuthScreen>
                                 ),
                               ),
                               TextButton(
-                                onPressed: _isSubmitting
+                                onPressed: _isSubmitting || _isLoginMode
                                     ? null
                                     : () => _switchMode(!_isLoginMode),
                                 style: TextButton.styleFrom(
@@ -824,7 +824,7 @@ class _AuthScreenState extends State<AuthScreen>
                                   foregroundColor: AppTheme.primary,
                                 ),
                                 child: Text(
-                                  _isLoginMode ? 'Daftar' : 'Masuk',
+                                  _isLoginMode ? 'Daftar — Coming Soon' : 'Masuk',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w800,
                                   ),
