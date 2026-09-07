@@ -655,7 +655,7 @@ class _AuthScreenState extends State<AuthScreen>
                                 ),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFF4C542),
-                                  borderRadius: const BorderRadius.vertical(
+                                  borderRadius: const BorderRadius.only(
                                     bottomLeft: Radius.circular(4),
                                     bottomRight: Radius.circular(4),
                                   ),
